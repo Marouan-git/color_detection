@@ -122,8 +122,8 @@ class _QrScreenState extends State<QrScreen> {
                   label: const Text('Print / Save PDF'),
                   style: ElevatedButton.styleFrom(
                     // Ensure visibility in dark mode (Blue BG, White Text)
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                    backgroundColor: Colors.blue,
+                    foregroundColor: Colors.white,
                   ),
                 ),
                 // const SizedBox(width: 16),

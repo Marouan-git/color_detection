@@ -10,6 +10,7 @@ Some rules that you should follow are in rules.md (notably Flutter best practice
 Milestones are described in milestones/ directory.
 Before implementing a milestone, create an md file for it to document the implementation.
 Each milestone file has user stories with description of each page/tab of the app that you must implement. Before implementing the milestone, ask me to confirm the md file content.
+The milestone file must be updated when changes are asked and made.
 
 # Tests
 Execute the full test suite with `flutter test`. If failures occur,

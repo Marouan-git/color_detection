@@ -175,15 +175,21 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  void _viewFile(File file) {
-    if (file.path.endsWith('.mp4')) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => VideoPlayerScreen(file: file)),
-      );
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (context) => ImageViewerScreen(file: file)),
-      );
+  Future<void> _viewFile(File file) async {
+    final bool? deleted = await (file.path.endsWith('.mp4')
+        ? Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+              builder: (context) => VideoPlayerScreen(file: file),
+            ),
+          )
+        : Navigator.of(context).push<bool>(
+            MaterialPageRoute(
+              builder: (context) => ImageViewerScreen(file: file),
+            ),
+          ));
+
+    if (deleted == true) {
+      _loadFiles();
     }
   }
 
@@ -194,8 +200,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
         title: const Text('Capture Gallery'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share),
-            tooltip: 'Export ZIP',
+            icon: const Icon(
+              Icons.download,
+            ), // Changed to download icon as requested
+            tooltip: 'Export/Save ZIP',
             onPressed: _exportZip,
           ),
           PopupMenuButton<String>(
@@ -269,10 +277,43 @@ class ImageViewerScreen extends StatelessWidget {
   final File file;
   const ImageViewerScreen({super.key, required this.file});
 
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Photo?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      await file.delete();
+      Navigator.pop(context, true); // Return true to indicate deletion
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Photo')),
+      appBar: AppBar(
+        title: const Text('Photo'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: () => _confirmDelete(context),
+          ),
+        ],
+      ),
       body: Center(child: Image.file(file)),
     );
   }
@@ -308,10 +349,45 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     super.dispose();
   }
 
+  Future<void> _confirmDelete(BuildContext context) async {
+    // Pause playback before confirming
+    _controller.pause();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Video?'),
+        content: const Text('This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      await widget.file.delete();
+      Navigator.pop(context, true); // Return true to indicate deletion
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Video')),
+      appBar: AppBar(
+        title: const Text('Video'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: () => _confirmDelete(context),
+          ),
+        ],
+      ),
       body: Center(
         child: _initialized
             ? AspectRatio(

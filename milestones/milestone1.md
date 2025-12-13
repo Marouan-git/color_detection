@@ -29,35 +29,45 @@ The primary goal of this milestone is to establish the application foundation an
 ## Pages / Screens
 
 ### 1. Home / Product Screen
--   **Description**: The landing screen of the app.
+-   **Description**: The landing screen of the app, now with Supplier and Stock Status.
 -   **UI Elements**:
-    -   Text Input: "Product ID" or "Product Name".
+    -   Text Input: "Product ID" (Uniqueness check required).
+    -   Text Input: "Supplier Name".
+    -   Dropdown: "Stock Status" (In/Low/Out).
     -   Button: "Generate QR".
-    -   List (Optional for M1): List of previously used Product IDs.
-    -   Navigation: Access to the "Data Capture" mode.
+    -   Buttons: Navigation to "Dashboard", "Data Capture", "Gallery".
 
 ### 2. QR Preview Screen (or Dialog)
 -   **Description**: Displays the generated QR code.
 -   **UI Elements**:
     -   Large display of the QR Code.
-    -   Button: "Save as Image".
-    -   Button: "Save as PDF".
-    -   Button: "Share/Print".
+    -   Button: "Save as PDF" (Must be visible in Dark Mode).
+    -   (Disabled) Button: "Share/Print".
 
 ### 3. Data Capture Screen
 -   **Description**: A custom camera viewfinder.
 -   **UI Elements**:
-    -   Viewfinder: Full -screen camera preview.
+    -   Viewfinder: Full-screen camera preview.
     -   Toggle: Switch between "Photo" and "Video" mode.
-    -   Capture Button: Shutter button to take photo or start/stop recording.
-    -   Gallery Thumbnail: Preview last capture (optional, but good UX).
+    -   Buttons: Shutter (Click for Photo, Click to Start/Stop Video - Manual).
+    -   Gallery Thumbnail: Interactive preview (Open Gallery).
+    -   Top-positioned Snackbars for feedback.
 
-### 4. Export Screen (or Dashboard Action)
+### 4. Gallery Screen (Dashboard Action)
 -   **Description**: Manage captured data.
 -   **UI Elements**:
-    -   Summary: "X Photos, Y Videos captured".
-    -   Button: "Export Data (ZIP)" - triggers system share sheet with the zip file.
-    -   Button: "Clear Data" (for cleanup).
+    -   Grid view of Photos/Videos (Separate folders internally).
+    -   Delete File capability.
+    -   Export Data (ZIP): "Download" to phone (Save to Files) option.
+    -   Clear All Data option.
+
+### 5. Dashboard Screen
+-   **Description**: Table view of registered products.
+-   **UI Elements**:
+    -   Table: Product ID, Supplier, Stock Status (In=Green, Low=Orange, Out=Red), Actions.
+    -   Horizontal Scroll indication.
+    -   Actions: View QR, Delete Product.
+    -   Global Actions: Print All QRs (PDF), Export Data (CSV Spreadsheet).
 
 ## Technical Constraints & Notes
 -   **Platform**: Android (APK export required).

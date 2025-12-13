@@ -26,20 +26,21 @@ class ProductRepository {
 
   Future<void> saveProduct(Product product) async {
     final products = await getProducts();
-    final index = products.indexWhere((p) => p.id == product.id);
+    // Remove if exists to replace
+    products.removeWhere((p) => p.id == product.id);
+    products.add(product);
 
-    if (index >= 0) {
-      products[index] = product;
-    } else {
-      products.add(product);
-    }
-
-    await _saveList(products);
+    final file = await _file;
+    final jsonList = products.map((p) => p.toJson()).toList();
+    await file.writeAsString(jsonEncode(jsonList));
   }
 
-  Future<void> _saveList(List<Product> products) async {
+  Future<void> deleteProduct(String id) async {
+    final products = await getProducts();
+    products.removeWhere((p) => p.id == id);
+
     final file = await _file;
-    final jsonList = products.map((e) => e.toJson()).toList();
+    final jsonList = products.map((p) => p.toJson()).toList();
     await file.writeAsString(jsonEncode(jsonList));
   }
 
