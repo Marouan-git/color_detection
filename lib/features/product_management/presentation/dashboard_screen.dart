@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
+import '../../../../core/presentation/pdf_preview_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
@@ -68,6 +67,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _saveToDownloads(File tempFile, String fileName) async {
+    try {
+      Directory? downloadsDir;
+      if (Platform.isAndroid) {
+        downloadsDir = Directory('/storage/emulated/0/Download');
+        if (!await downloadsDir.exists()) {
+          downloadsDir = await getExternalStorageDirectory();
+        }
+      } else {
+        downloadsDir = await getDownloadsDirectory();
+      }
+
+      if (downloadsDir != null) {
+        final newPath = '${downloadsDir.path}/$fileName';
+        await tempFile.copy(newPath);
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Saved to $newPath')));
+        }
+        return;
+      }
+    } catch (e) {
+      // Fallback
+    }
+
+    // ignore: deprecated_member_use
+    await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
+  }
+
   Future<void> _exportCsv() async {
     if (_products.isEmpty) {
       ScaffoldMessenger.of(
@@ -83,12 +112,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
           .join('\n');
       final csvContent = '$header$rows';
 
-      final directory = await getApplicationDocumentsDirectory();
+      final directory = await getTemporaryDirectory();
       final file = File('${directory.path}/products_export.csv');
       await file.writeAsString(csvContent);
 
-      // ignore: deprecated_member_use
-      await Share.shareXFiles([XFile(file.path)], text: 'Products CSV Export');
+      await _saveToDownloads(file, 'products_export.csv');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -133,9 +161,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'All_Product_QRs',
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PdfPreviewScreen(
+          title: 'All_Product_QRs',
+          buildPdf: (format) async {
+            // Rebuild the PDF for the preview to ensure it matches the format if needed,
+            // or just save the one we already built.
+            // Since PdfPreview might request specific formats, best to rely on its callback if we want to be strict,
+            // but for simplicity we'll just save the one we built above or rebuild it here if we want to support dynamic formats.
+            // Actually, let's just use the one we built.
+            return pdf.save();
+          },
+        ),
+      ),
     );
   }
 
@@ -158,7 +197,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           if (_products.isNotEmpty) ...[
             IconButton(
-              icon: const Icon(Icons.table_view),
+              icon: const Icon(Icons.download), // Changed to Download Icon
               onPressed: _exportCsv,
               tooltip: 'Export CSV',
             ),
@@ -174,74 +213,99 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _products.isEmpty
           ? const Center(child: Text('No products registered yet.'))
-          : Scrollbar(
-              thumbVisibility: true,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.vertical,
-                child: Scrollbar(
-                  notificationPredicate: (notification) =>
-                      notification.depth == 1,
-                  thumbVisibility: true,
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: const [
-                        DataColumn(label: Text('Product ID')),
-                        DataColumn(label: Text('Supplier')),
-                        DataColumn(label: Text('Stock')),
-                        DataColumn(label: Text('Action')),
-                      ],
-                      rows: _products.map((product) {
-                        return DataRow(
-                          cells: [
-                            DataCell(Text(product.id)),
-                            DataCell(Text(product.supplier)),
-                            DataCell(
-                              Row(
-                                children: [
-                                  Container(
-                                    width: 12,
-                                    height: 12,
-                                    decoration: BoxDecoration(
-                                      color: _getStockColor(
-                                        product.stockStatus,
-                                      ),
-                                      shape: BoxShape.circle,
+          : Column(
+              children: [
+                const Padding(
+                  padding: EdgeInsets.all(8.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.swipe, size: 16, color: Colors.grey),
+                      SizedBox(width: 8),
+                      Text(
+                        'Swipe table to view actions',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Scrollbar(
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.vertical,
+                      child: Scrollbar(
+                        notificationPredicate: (notification) =>
+                            notification.depth == 1,
+                        thumbVisibility: true,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columns: const [
+                              DataColumn(label: Text('Product ID')),
+                              DataColumn(label: Text('Supplier')),
+                              DataColumn(label: Text('Stock')),
+                              DataColumn(label: Text('Action')),
+                            ],
+                            rows: _products.map((product) {
+                              return DataRow(
+                                cells: [
+                                  DataCell(Text(product.id)),
+                                  DataCell(Text(product.supplier)),
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        Container(
+                                          width: 12,
+                                          height: 12,
+                                          decoration: BoxDecoration(
+                                            color: _getStockColor(
+                                              product.stockStatus,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(product.stockStatus.label),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(product.stockStatus.label),
-                                ],
-                              ),
-                            ),
-                            DataCell(
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.qr_code),
-                                    onPressed: () =>
-                                        context.push('/qr', extra: product.id),
-                                    tooltip: 'View QR',
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.delete,
-                                      color: Colors.red,
+                                  DataCell(
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.qr_code),
+                                          onPressed: () => context.push(
+                                            '/qr',
+                                            extra: product.id,
+                                          ),
+                                          tooltip: 'View QR',
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            color: Colors.red,
+                                          ),
+                                          onPressed: () =>
+                                              _deleteProduct(product),
+                                          tooltip: 'Delete Product',
+                                        ),
+                                      ],
                                     ),
-                                    onPressed: () => _deleteProduct(product),
-                                    tooltip: 'Delete Product',
                                   ),
                                 ],
-                              ),
-                            ),
-                          ],
-                        );
-                      }).toList(),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
     );
   }

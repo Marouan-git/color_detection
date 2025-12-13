@@ -2,12 +2,10 @@
 // import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 // import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+import '../../../core/presentation/pdf_preview_screen.dart';
 // import 'package:share_plus/share_plus.dart';
 
 class QrScreen extends StatefulWidget {
@@ -49,9 +47,45 @@ class _QrScreenState extends State<QrScreen> {
       ),
     );
 
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-      name: 'QR_${widget.productId}',
+    // Navigate to preview instead of direct print
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PdfPreviewScreen(
+          title: 'QR_${widget.productId}',
+          buildPdf: (format) async {
+            // Rebuild PDF with format if needed, or just return saved byte data
+            // The previous logic built it on the fly. Let's keep it simple.
+            // We need to return Uint8List.
+            final pdf = pw.Document();
+            pdf.addPage(
+              pw.Page(
+                pageFormat: format,
+                build: (pw.Context context) {
+                  return pw.Center(
+                    child: pw.Column(
+                      mainAxisAlignment: pw.MainAxisAlignment.center,
+                      children: [
+                        pw.Text(
+                          'Product ID: ${widget.productId}',
+                          style: const pw.TextStyle(fontSize: 24),
+                        ),
+                        pw.SizedBox(height: 20),
+                        pw.BarcodeWidget(
+                          barcode: pw.Barcode.qrCode(),
+                          data: widget.productId,
+                          width: 200,
+                          height: 200,
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            );
+            return pdf.save();
+          },
+        ),
+      ),
     );
   }
 

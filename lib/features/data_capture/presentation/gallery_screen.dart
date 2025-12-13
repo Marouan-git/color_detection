@@ -132,6 +132,40 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
+  Future<void> _saveToDownloads(File tempFile, String fileName) async {
+    try {
+      Directory? downloadsDir;
+      if (Platform.isAndroid) {
+        downloadsDir = Directory('/storage/emulated/0/Download');
+        if (!await downloadsDir.exists()) {
+          downloadsDir = await getExternalStorageDirectory();
+        }
+      } else {
+        downloadsDir = await getDownloadsDirectory();
+      }
+
+      if (downloadsDir != null) {
+        final newPath = '${downloadsDir.path}/$fileName';
+        await tempFile.copy(newPath);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Saved to $newPath'),
+              behavior: SnackBarBehavior.floating,
+              margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      // Fallback to share
+    }
+
+    // ignore: deprecated_member_use
+    await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
+  }
+
   Future<void> _exportZip() async {
     if (_files.isEmpty) {
       ScaffoldMessenger.of(
@@ -142,25 +176,24 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
     setState(() => _loading = true);
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final captureDir = Directory('${directory.path}/captures');
+      final directory =
+          await getTemporaryDirectory(); // Use temp for zip creation
+      final captureDir = await getApplicationDocumentsDirectory().then(
+        (d) => Directory('${d.path}/captures'),
+      );
 
       var encoder = ZipFileEncoder();
       final zipPath = '${directory.path}/captures_export.zip';
       encoder.create(zipPath);
 
-      // Add the captures directory.
-      // Note: addDirectory with valid path adds contents recursively
-      // But we want the structure inside the zip.
-      // Simplest is to manually add files from _files list or just add directory.
-      await encoder.addDirectory(captureDir);
-
+      if (await captureDir.exists()) {
+        await encoder.addDirectory(captureDir);
+      }
       encoder.close();
 
       final zipFile = File(zipPath);
       if (await zipFile.exists()) {
-        // ignore: deprecated_member_use
-        await Share.shareXFiles([XFile(zipPath)], text: 'Captured Data Export');
+        await _saveToDownloads(zipFile, 'captures_export.zip');
       } else {
         throw Exception('Zip file creation failed');
       }
@@ -296,9 +329,11 @@ class ImageViewerScreen extends StatelessWidget {
       ),
     );
 
-    if (confirmed == true && context.mounted) {
+    if (confirmed == true) {
       await file.delete();
-      Navigator.pop(context, true); // Return true to indicate deletion
+      if (context.mounted) {
+        Navigator.pop(context, true);
+      }
     }
   }
 
@@ -370,9 +405,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
       ),
     );
 
-    if (confirmed == true && context.mounted) {
+    if (confirmed == true) {
       await widget.file.delete();
-      Navigator.pop(context, true); // Return true to indicate deletion
+      if (context.mounted) {
+        Navigator.pop(context, true);
+      }
     }
   }
 
