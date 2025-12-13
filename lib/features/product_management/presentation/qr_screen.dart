@@ -1,14 +1,14 @@
-import 'dart:io';
-import 'dart:ui' as ui;
+// import 'dart:io';
+// import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:path_provider/path_provider.dart';
+// import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:qr_flutter/qr_flutter.dart';
-import 'package:share_plus/share_plus.dart';
+// import 'package:share_plus/share_plus.dart';
 
 class QrScreen extends StatefulWidget {
   final String productId;
@@ -55,6 +55,7 @@ class _QrScreenState extends State<QrScreen> {
     );
   }
 
+  /*
   Future<void> _shareImage() async {
     try {
       final boundary =
@@ -83,6 +84,7 @@ class _QrScreenState extends State<QrScreen> {
       }
     }
   }
+  */
 
   @override
   Widget build(BuildContext context) {
@@ -118,13 +120,18 @@ class _QrScreenState extends State<QrScreen> {
                   onPressed: _saveAsPdf,
                   icon: const Icon(Icons.picture_as_pdf),
                   label: const Text('Print / Save PDF'),
+                  style: ElevatedButton.styleFrom(
+                    // Ensure visibility in dark mode (Blue BG, White Text)
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Theme.of(context).colorScheme.onPrimary,
+                  ),
                 ),
-                const SizedBox(width: 16),
-                OutlinedButton.icon(
-                  onPressed: _shareImage,
-                  icon: const Icon(Icons.share),
-                  label: const Text('Share Image'),
-                ),
+                // const SizedBox(width: 16),
+                // OutlinedButton.icon(
+                //   onPressed: _shareImage,
+                //   icon: const Icon(Icons.share),
+                //   label: const Text('Share Image'),
+                // ),
               ],
             ),
           ],

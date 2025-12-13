@@ -14,11 +14,21 @@ void main() {
     expect(find.text('Product Management'), findsOneWidget);
 
     // Verify Inputs
-    expect(find.byType(TextFormField), findsOneWidget);
-    expect(find.text('Enter Product ID or Name'), findsOneWidget);
+    expect(find.text('Product ID'), findsOneWidget);
+    expect(find.text('Supplier'), findsOneWidget);
+    expect(
+      find.byType(TextFormField),
+      findsNWidgets(2),
+    ); // Product ID and Supplier
+    expect(
+      find.text('Stock Status'),
+      findsOneWidget,
+    ); // Find label for Dropdown
 
-    // Verify Buttons - find by icon to be safe or just text
+    // Verify Buttons
     expect(find.text('Generate QR Code'), findsOneWidget);
+    expect(find.text('View Product Dashboard'), findsOneWidget);
     expect(find.text('Go to Data Capture'), findsOneWidget);
+    expect(find.text('Manage Captured Data'), findsOneWidget);
   });
 }

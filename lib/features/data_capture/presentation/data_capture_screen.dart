@@ -1,12 +1,11 @@
 import 'dart:async';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-// Using gal for saving to gallery might be better? Or just file.
-// Rules say "Data Capture Tool... store locally... Share/Export button creates a zip".
-// So saving to app directory is better.
-
 import 'package:path_provider/path_provider.dart';
+import 'package:go_router/go_router.dart';
 import 'dart:io';
+
+enum CaptureMode { photo, video }
 
 class DataCaptureScreen extends StatefulWidget {
   const DataCaptureScreen({super.key});
@@ -22,6 +21,7 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
   bool _isRecording = false;
   bool _isInit = false;
   String? _lastCapturePath;
+  CaptureMode _mode = CaptureMode.photo;
 
   @override
   void initState() {
@@ -39,7 +39,6 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // App state changed before we got the chance to initialize.
     final CameraController? cameraController = _controller;
     if (cameraController == null || !cameraController.value.isInitialized) {
       return;
@@ -55,7 +54,6 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
   Future<void> _initCamera() async {
     _cameras = await availableCameras();
     if (_cameras != null && _cameras!.isNotEmpty) {
-      // Use the first back camera
       final camera = _cameras!.firstWhere(
         (camera) => camera.lensDirection == CameraLensDirection.back,
         orElse: () => _cameras!.first,
@@ -70,11 +68,6 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
 
       try {
         await _controller!.initialize();
-        // Try to disable some auto-enhancements if possible/supported
-        // Note: Exposure/Focus locking logic could go here if requested,
-        // but "minimal auto-processing" usually means avoid HDR/Night mode which are often automatic
-        // or require specific native params not always exposed.
-        // We will default to standard capture.
         if (mounted) {
           setState(() {
             _isInit = true;
@@ -86,6 +79,21 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
     }
   }
 
+  void _showTopSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        margin: EdgeInsets.only(
+          bottom: MediaQuery.of(context).size.height - 150, // Top area
+          left: 20,
+          right: 20,
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _capturePhoto() async {
     if (_controller == null || !_controller!.value.isInitialized) return;
     if (_controller!.value.isTakingPicture) return;
@@ -94,9 +102,7 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
       final XFile file = await _controller!.takePicture();
       await _saveFile(file, isVideo: false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Photo Captured')));
+        _showTopSnackBar('Photo Captured');
       }
     } catch (e) {
       debugPrint('Error capturing photo: $e');
@@ -111,9 +117,7 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
       setState(() => _isRecording = false);
       await _saveFile(file, isVideo: true);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Video Saved')));
+        _showTopSnackBar('Video Saved');
       }
     } else {
       await _controller!.startVideoRecording();
@@ -121,9 +125,18 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
     }
   }
 
+  Future<void> _onShutterPressed() async {
+    if (_mode == CaptureMode.photo) {
+      await _capturePhoto();
+    } else {
+      await _toggleVideoRecording();
+    }
+  }
+
   Future<void> _saveFile(XFile file, {required bool isVideo}) async {
     final directory = await getApplicationDocumentsDirectory();
-    final String captureDir = '${directory.path}/captures';
+    final String subDir = isVideo ? 'videos' : 'images';
+    final String captureDir = '${directory.path}/captures/$subDir';
     await Directory(captureDir).create(recursive: true);
 
     final String fileName =
@@ -156,61 +169,75 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
             child: Container(
               color: Colors.black45,
               padding: const EdgeInsets.all(24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Last capture preview (simple placeholder or icon if nothing)
-                  Container(
-                    width: 50,
-                    height: 50,
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.white),
-                      borderRadius: BorderRadius.circular(8),
-                      image: _lastCapturePath != null
-                          ? DecorationImage(
-                              image: FileImage(File(_lastCapturePath!)),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
-                    ),
-                    child: _lastCapturePath == null
-                        ? const Icon(Icons.history, color: Colors.white)
-                        : null,
+                  // Mode Toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildModeButton(CaptureMode.photo, 'Photo'),
+                      const SizedBox(width: 20),
+                      _buildModeButton(CaptureMode.video, 'Video'),
+                    ],
                   ),
-
-                  // Shutter Button
-                  GestureDetector(
-                    onTap: _capturePhoto,
-                    onLongPress:
-                        _toggleVideoRecording, // Long press for video? Or maybe separate toggle.
-                    // User story says "Toggle: Switch between Photo and Video mode".
-                    // I'll implement a proper toggle or separate buttons.
-                    // Let's do separate buttons for clarity or mode switch.
-                    child: Container(
-                      width: 70,
-                      height: 70,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _isRecording ? Colors.red : Colors.white,
-                        border: Border.all(color: Colors.grey, width: 4),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      // Last capture preview
+                      GestureDetector(
+                        onTap: () => context.push('/gallery'),
+                        child: Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white),
+                            borderRadius: BorderRadius.circular(8),
+                            image:
+                                _lastCapturePath != null &&
+                                    _lastCapturePath!.endsWith('.jpg')
+                                ? DecorationImage(
+                                    image: FileImage(File(_lastCapturePath!)),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child:
+                              _lastCapturePath == null ||
+                                  !_lastCapturePath!.endsWith('.jpg')
+                              ? const Icon(
+                                  Icons.collections,
+                                  color: Colors.white,
+                                )
+                              : null,
+                        ),
                       ),
-                      child: _isRecording
-                          ? const Icon(Icons.stop, color: Colors.white)
-                          : null,
-                    ),
-                  ),
 
-                  // Mode Toggle (Simplified as separate button for now to stop/start if recording,
-                  // but usually simple tap = photo, long press = video is nice.
-                  // But "Toggle: Switch between 'Photo' and 'Video' mode" implies a state switch.
-                  // I'll add a mode switch button.
-                  IconButton(
-                    onPressed: _toggleVideoRecording,
-                    icon: Icon(
-                      _isRecording ? Icons.videocam_off : Icons.videocam,
-                      color: Colors.white,
-                      size: 30,
-                    ),
+                      // Shutter Button
+                      GestureDetector(
+                        onTap: _onShutterPressed,
+                        child: Container(
+                          width: 70,
+                          height: 70,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _mode == CaptureMode.video && _isRecording
+                                ? Colors.red
+                                : Colors.white,
+                            border: Border.all(color: Colors.grey, width: 4),
+                          ),
+                          child: _mode == CaptureMode.video && _isRecording
+                              ? const Center(
+                                  child: Icon(Icons.stop, color: Colors.white),
+                                )
+                              : null,
+                        ),
+                      ),
+
+                      // Placeholder for symmetry or settings
+                      const SizedBox(width: 50),
+                    ],
                   ),
                 ],
               ),
@@ -224,6 +251,25 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
             child: const BackButton(color: Colors.white),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildModeButton(CaptureMode mode, String label) {
+    final isSelected = _mode == mode;
+    return GestureDetector(
+      onTap: () {
+        if (!_isRecording) {
+          setState(() => _mode = mode);
+        }
+      },
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.yellow : Colors.white,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+          fontSize: 16,
+        ),
       ),
     );
   }
