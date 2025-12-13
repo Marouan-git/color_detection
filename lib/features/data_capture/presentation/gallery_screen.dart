@@ -136,6 +136,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     try {
       Directory? downloadsDir;
       if (Platform.isAndroid) {
+        // Standard Android Download directory (Singular 'Download')
         downloadsDir = Directory('/storage/emulated/0/Download');
         if (!await downloadsDir.exists()) {
           downloadsDir = await getExternalStorageDirectory();

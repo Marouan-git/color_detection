@@ -71,30 +71,44 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       Directory? downloadsDir;
       if (Platform.isAndroid) {
+        // Standard Android Download directory
         downloadsDir = Directory('/storage/emulated/0/Download');
+        // Ensure it exists (though it should on standard Android)
         if (!await downloadsDir.exists()) {
+          // Fallback if standard path doesn't exist (e.g. some emulators)
           downloadsDir = await getExternalStorageDirectory();
         }
       } else {
-        downloadsDir = await getDownloadsDirectory();
+        // iOS/Desktop
+        downloadsDir = await getApplicationDocumentsDirectory();
       }
 
-      if (downloadsDir != null) {
-        final newPath = '${downloadsDir.path}/$fileName';
-        await tempFile.copy(newPath);
+      if (downloadsDir == null) {
+        throw Exception('Could not determine download directory');
+      }
+
+      final newPath = '${downloadsDir.path}/$fileName';
+      final newFile = await tempFile.copy(newPath);
+
+      if (Platform.isAndroid) {
+        // Show specific success for Android direct download
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Saved to $newPath')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Saved to Downloads: $fileName')),
+          );
         }
-        return;
+      } else {
+        // Fallback or iOS 'Save to Files'
+        final xFile = XFile(newFile.path);
+        await Share.shareXFiles([xFile], text: 'Exported $fileName');
       }
     } catch (e) {
-      // Fallback
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save file: $e')));
+      }
     }
-
-    // ignore: deprecated_member_use
-    await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
   }
 
   Future<void> _exportCsv() async {
@@ -189,6 +203,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -233,6 +255,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 Expanded(
                   child: Scrollbar(
+                    controller: _scrollController,
                     thumbVisibility: true,
                     child: SingleChildScrollView(
                       scrollDirection: Axis.vertical,
@@ -241,6 +264,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             notification.depth == 1,
                         thumbVisibility: true,
                         child: SingleChildScrollView(
+                          controller: _scrollController,
                           scrollDirection: Axis.horizontal,
                           child: DataTable(
                             columns: const [

@@ -73,7 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Traffic Sensor Detection')),
+      appBar: AppBar(title: const Text('Stock Status Detection')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -156,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: const Text('Go to Data Capture'),
                 ),
                 const SizedBox(height: 16),
-                TextButton.icon(
+                OutlinedButton.icon(
                   onPressed: () => context.push('/export'),
                   icon: const Icon(Icons.folder_open),
                   label: const Text('Manage Captured Data'),
