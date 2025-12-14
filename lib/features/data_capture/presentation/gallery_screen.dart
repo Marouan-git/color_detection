@@ -4,6 +4,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:archive/archive_io.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../../../../core/utils/file_saver.dart';
 
 class GalleryScreen extends StatefulWidget {
   const GalleryScreen({super.key});
@@ -132,40 +134,40 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  Future<void> _saveToDownloads(File tempFile, String fileName) async {
-    try {
-      Directory? downloadsDir;
-      if (Platform.isAndroid) {
-        // Standard Android Download directory (Singular 'Download')
-        downloadsDir = Directory('/storage/emulated/0/Download');
-        if (!await downloadsDir.exists()) {
-          downloadsDir = await getExternalStorageDirectory();
-        }
-      } else {
-        downloadsDir = await getDownloadsDirectory();
-      }
+  // Future<void> _saveToDownloads(File tempFile, String fileName) async {
+  //   try {
+  //     Directory? downloadsDir;
+  //     if (Platform.isAndroid) {
+  //       // Standard Android Download directory (Singular 'Download')
+  //       downloadsDir = Directory('/storage/emulated/0/Download');
+  //       if (!await downloadsDir.exists()) {
+  //         downloadsDir = await getExternalStorageDirectory();
+  //       }
+  //     } else {
+  //       downloadsDir = await getDownloadsDirectory();
+  //     }
 
-      if (downloadsDir != null) {
-        final newPath = '${downloadsDir.path}/$fileName';
-        await tempFile.copy(newPath);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Saved to $newPath'),
-              behavior: SnackBarBehavior.floating,
-              margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
-            ),
-          );
-        }
-        return;
-      }
-    } catch (e) {
-      // Fallback to share
-    }
+  //     if (downloadsDir != null) {
+  //       final newPath = '${downloadsDir.path}/$fileName';
+  //       await tempFile.copy(newPath);
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(
+  //             content: Text('Saved to $newPath'),
+  //             behavior: SnackBarBehavior.floating,
+  //             margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
+  //           ),
+  //         );
+  //       }
+  //       return;
+  //     }
+  //   } catch (e) {
+  //     // Fallback to share
+  //   }
 
-    // ignore: deprecated_member_use
-    await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
-  }
+  //   // ignore: deprecated_member_use
+  //   await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
+  // }
 
   Future<void> _exportZip() async {
     if (_files.isEmpty) {
@@ -193,10 +195,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
       encoder.close();
 
       final zipFile = File(zipPath);
-      if (await zipFile.exists()) {
-        await _saveToDownloads(zipFile, 'captures_export.zip');
+      if (await zipFile.exists() && await zipFile.length() > 0) {
+        if (mounted) {
+          await saveFileToDownloads(context, zipFile, 'captures_export.zip');
+        }
       } else {
-        throw Exception('Zip file creation failed');
+        throw Exception('Zip file creation failed or file is empty');
       }
     } catch (e) {
       if (mounted) {
@@ -234,10 +238,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
         title: const Text('Capture Gallery'),
         actions: [
           IconButton(
-            icon: const Icon(
-              Icons.download,
-            ), // Changed to download icon as requested
-            tooltip: 'Export/Save ZIP',
+            icon: const Icon(Icons.download),
+            tooltip: 'Share/Export ZIP',
             onPressed: _exportZip,
           ),
           PopupMenuButton<String>(

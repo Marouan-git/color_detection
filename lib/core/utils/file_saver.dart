@@ -1,46 +1,70 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 
 Future<void> saveFileToDownloads(
   BuildContext context,
-  File file,
+  File tempFile,
   String fileName,
 ) async {
   try {
-    Directory? downloadsDir;
-    if (Platform.isAndroid) {
-      downloadsDir = Directory('/storage/emulated/0/Download');
-      if (!await downloadsDir.exists()) {
-        downloadsDir = await getExternalStorageDirectory();
+    if (Platform.isAndroid || Platform.isIOS) {
+      // Use flutter_file_dialog for proper system integration
+      final extension = fileName.split('.').last.toLowerCase();
+      String? mimeType;
+      if (extension == 'zip') {
+        mimeType = 'application/zip';
+      } else if (extension == 'csv') {
+        mimeType = 'text/csv';
+      } else if (extension == 'pdf') {
+        mimeType = 'application/pdf';
       }
-    } else {
-      downloadsDir = await getApplicationDocumentsDirectory();
-    }
 
-    if (downloadsDir == null) {
-      throw Exception('Could not determine download directory');
-    }
+      final params = SaveFileDialogParams(
+        sourceFilePath: tempFile.path,
+        fileName: fileName,
+        mimeTypesFilter: mimeType != null ? [mimeType] : null,
+      );
 
-    final newPath = '${downloadsDir.path}/$fileName';
-    final newFile = await file.copy(newPath);
+      final filePath = await FlutterFileDialog.saveFile(params: params);
 
-    if (Platform.isAndroid) {
-      if (context.mounted) {
+      if (filePath != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Saved to Downloads: $fileName')),
+          SnackBar(
+            content: Text('✓ File saved successfully'),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
+            duration: const Duration(seconds: 3),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } else if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Save cancelled'),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
       }
     } else {
-      final xFile = XFile(newFile.path);
-      await Share.shareXFiles([xFile], text: 'Exported $fileName');
+      // Desktop fallback
+      await _shareFile(tempFile, fileName);
     }
   } catch (e) {
+    debugPrint('Error saving file: $e');
     if (context.mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to save file: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Save failed. Using share instead.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
+    await _shareFile(tempFile, fileName);
   }
+}
+
+Future<void> _shareFile(File file, String fileName) async {
+  await Share.shareXFiles([XFile(file.path)], text: fileName);
 }

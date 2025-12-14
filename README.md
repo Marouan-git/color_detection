@@ -23,7 +23,23 @@ Traffic Sensor Detection Application for managing products and capturing data (p
   - View and delete captured images and videos.
   - Export all data as a ZIP file (Download/Share).
 
-### How to Run
+---
+
+### 📦 How to Install (For Client)
+
+1. **Receive the File**: You will receive a file named `app-release.apk`.
+2. **Download**: Save this file to your Android phone (e.g., via WhatsApp, Email, or Google Drive).
+3. **Install**:
+   - Tap on the `app-release.apk` file in your phone's file manager or downloads folder.
+   - If prompted, allow installation from "Unknown Sources" (this is normal for apps not from the Play Store).
+   - Tap **Install**.
+4. **Open**: Once installed, look for "Traffic Sensor App" (or "Color Detection") on your home screen.
+
+*Note: Allow camera and storage permissions when the app first opens to ensure all features work.*
+
+---
+
+### How to Run (Development)
 1. **Prerequisites**: Flutter SDK installed.
 2. **Setup**:
    ```bash

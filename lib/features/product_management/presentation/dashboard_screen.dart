@@ -3,8 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../../../../core/presentation/pdf_preview_screen.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:share_plus/share_plus.dart';
 import 'dart:io';
+import '../../../../core/utils/file_saver.dart';
 import '../data/product_repository.dart';
 import '../domain/product.dart';
 
@@ -67,49 +67,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _saveToDownloads(File tempFile, String fileName) async {
-    try {
-      Directory? downloadsDir;
-      if (Platform.isAndroid) {
-        // Standard Android Download directory
-        downloadsDir = Directory('/storage/emulated/0/Download');
-        // Ensure it exists (though it should on standard Android)
-        if (!await downloadsDir.exists()) {
-          // Fallback if standard path doesn't exist (e.g. some emulators)
-          downloadsDir = await getExternalStorageDirectory();
-        }
-      } else {
-        // iOS/Desktop
-        downloadsDir = await getApplicationDocumentsDirectory();
-      }
+  // Future<void> _saveToDownloads(File tempFile, String fileName) async {
+  //   try {
+  //     Directory? downloadsDir;
+  //     if (Platform.isAndroid) {
+  //       // Standard Android Download directory
+  //       downloadsDir = Directory('/storage/emulated/0/Download');
+  //       // Ensure it exists (though it should on standard Android)
+  //       if (!await downloadsDir.exists()) {
+  //         // Fallback if standard path doesn't exist (e.g. some emulators)
+  //         downloadsDir = await getExternalStorageDirectory();
+  //       }
+  //     } else {
+  //       // iOS/Desktop
+  //       downloadsDir = await getApplicationDocumentsDirectory();
+  //     }
 
-      if (downloadsDir == null) {
-        throw Exception('Could not determine download directory');
-      }
+  //     if (downloadsDir == null) {
+  //       throw Exception('Could not determine download directory');
+  //     }
 
-      final newPath = '${downloadsDir.path}/$fileName';
-      final newFile = await tempFile.copy(newPath);
+  //     final newPath = '${downloadsDir.path}/$fileName';
+  //     final newFile = await tempFile.copy(newPath);
 
-      if (Platform.isAndroid) {
-        // Show specific success for Android direct download
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Saved to Downloads: $fileName')),
-          );
-        }
-      } else {
-        // Fallback or iOS 'Save to Files'
-        final xFile = XFile(newFile.path);
-        await Share.shareXFiles([xFile], text: 'Exported $fileName');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to save file: $e')));
-      }
-    }
-  }
+  //     if (Platform.isAndroid) {
+  //       // Show specific success for Android direct download
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(content: Text('Saved to Downloads: $fileName')),
+  //         );
+  //       }
+  //     } else {
+  //       // Fallback or iOS 'Save to Files'
+  //       final xFile = XFile(newFile.path);
+  //       await Share.shareXFiles([xFile], text: 'Exported $fileName');
+  //     }
+  //   } catch (e) {
+  //     if (mounted) {
+  //       ScaffoldMessenger.of(
+  //         context,
+  //       ).showSnackBar(SnackBar(content: Text('Failed to save file: $e')));
+  //     }
+  //   }
+  // }
 
   Future<void> _exportCsv() async {
     if (_products.isEmpty) {
@@ -130,7 +130,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final file = File('${directory.path}/products_export.csv');
       await file.writeAsString(csvContent);
 
-      await _saveToDownloads(file, 'products_export.csv');
+      if (mounted) {
+        await saveFileToDownloads(context, file, 'products_export.csv');
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -219,9 +221,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
         actions: [
           if (_products.isNotEmpty) ...[
             IconButton(
-              icon: const Icon(Icons.download), // Changed to Download Icon
+              icon: const Icon(Icons.table_view),
               onPressed: _exportCsv,
-              tooltip: 'Export CSV',
+              tooltip: 'Export to CSV',
             ),
             IconButton(
               icon: const Icon(Icons.print),
