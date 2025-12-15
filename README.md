@@ -8,16 +8,19 @@ Traffic Sensor Detection Application for managing products and capturing data (p
 - **Product Management**: 
   - Input Product IDs and Supplier names.
   - Set Stock Status (In Stock, Low Stock, Out of Stock).
+  - Generate an associated QR code and print it or save it to PDF format.
   - Persistence of product data.
 - **Dashboard**:
   - View all registered products in a table.
   - Visual indicators for stock status.
+  - QR code for each product.
+  - Remove products.
   - Bulk print all QR codes to a single PDF.
+  - Export products list as a CSV file.
 - **QR Code Tools**: Save QR codes as PDF (share image disabled for now).
 - **Data Capture**:
   - Custom camera interface to capture photos and videos.
   - Toggle between Photo and Video modes.
-  - Separate folders for images and videos.
   - In-session gallery preview.
 - **Gallery & Data Export**:
   - View and delete captured images and videos.
@@ -25,15 +28,15 @@ Traffic Sensor Detection Application for managing products and capturing data (p
 
 ---
 
-### 📦 How to Install (For Client)
+### 📦 How to Install
 
-1. **Receive the File**: You will receive a file named `app-release.apk`.
-2. **Download**: Save this file to your Android phone (e.g., via WhatsApp, Email, or Google Drive).
+1. **Receive the File**: You will receive a file named `app-foundation.apk`.
+2. **Download**: Save this file to your Android phone.
 3. **Install**:
-   - Tap on the `app-release.apk` file in your phone's file manager or downloads folder.
+   - Tap on the `app-foundation.apk` file in your phone's file manager or downloads folder.
    - If prompted, allow installation from "Unknown Sources" (this is normal for apps not from the Play Store).
    - Tap **Install**.
-4. **Open**: Once installed, look for "Traffic Sensor App" (or "Color Detection") on your home screen.
+4. **Open**: Once installed, look for the app called "color_detection".
 
 *Note: Allow camera and storage permissions when the app first opens to ensure all features work.*
 

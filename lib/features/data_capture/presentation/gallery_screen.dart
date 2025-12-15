@@ -134,41 +134,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  // Future<void> _saveToDownloads(File tempFile, String fileName) async {
-  //   try {
-  //     Directory? downloadsDir;
-  //     if (Platform.isAndroid) {
-  //       // Standard Android Download directory (Singular 'Download')
-  //       downloadsDir = Directory('/storage/emulated/0/Download');
-  //       if (!await downloadsDir.exists()) {
-  //         downloadsDir = await getExternalStorageDirectory();
-  //       }
-  //     } else {
-  //       downloadsDir = await getDownloadsDirectory();
-  //     }
-
-  //     if (downloadsDir != null) {
-  //       final newPath = '${downloadsDir.path}/$fileName';
-  //       await tempFile.copy(newPath);
-  //       if (mounted) {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(
-  //             content: Text('Saved to $newPath'),
-  //             behavior: SnackBarBehavior.floating,
-  //             margin: const EdgeInsets.only(bottom: 20, left: 20, right: 20),
-  //           ),
-  //         );
-  //       }
-  //       return;
-  //     }
-  //   } catch (e) {
-  //     // Fallback to share
-  //   }
-
-  //   // ignore: deprecated_member_use
-  //   await Share.shareXFiles([XFile(tempFile.path)], text: fileName);
-  // }
-
   Future<void> _exportZip() async {
     if (_files.isEmpty) {
       ScaffoldMessenger.of(
