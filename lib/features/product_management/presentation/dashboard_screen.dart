@@ -205,11 +205,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  final _scrollController = ScrollController();
+  final _verticalController = ScrollController();
+  final _horizontalController = ScrollController();
 
   @override
   void dispose() {
-    _scrollController.dispose();
+    _verticalController.dispose();
+    _horizontalController.dispose();
     super.dispose();
   }
 
@@ -257,16 +259,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 Expanded(
                   child: Scrollbar(
-                    controller: _scrollController,
+                    controller: _verticalController,
                     thumbVisibility: true,
+                    trackVisibility: true,
                     child: SingleChildScrollView(
+                      controller: _verticalController,
                       scrollDirection: Axis.vertical,
                       child: Scrollbar(
+                        controller: _horizontalController,
                         notificationPredicate: (notification) =>
                             notification.depth == 1,
                         thumbVisibility: true,
+                        trackVisibility: true,
                         child: SingleChildScrollView(
-                          controller: _scrollController,
+                          controller: _horizontalController,
                           scrollDirection: Axis.horizontal,
                           child: DataTable(
                             columns: const [

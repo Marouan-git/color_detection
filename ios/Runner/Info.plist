@@ -45,5 +45,10 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+    <!-- Camera & Microphone Permissions -->
+    <key>NSCameraUsageDescription</key>
+    <string>Need camera for color detection.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Need microphone for video.</string>
 </dict>
 </plist>

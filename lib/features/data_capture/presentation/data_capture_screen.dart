@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 
 enum CaptureMode { photo, video }
 
@@ -51,31 +52,52 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
     }
   }
 
+  bool _isSimulator = false;
+
   Future<void> _initCamera() async {
-    _cameras = await availableCameras();
-    if (_cameras != null && _cameras!.isNotEmpty) {
-      final camera = _cameras!.firstWhere(
-        (camera) => camera.lensDirection == CameraLensDirection.back,
-        orElse: () => _cameras!.first,
-      );
+    final deviceInfo = DeviceInfoPlugin();
+    if (Platform.isIOS) {
+      final iosInfo = await deviceInfo.iosInfo;
+      if (!iosInfo.isPhysicalDevice) {
+        if (mounted) {
+          setState(() {
+            _isSimulator = true;
+            _isInit = true;
+          });
+        }
+        return;
+      }
+    }
 
-      _controller = CameraController(
-        camera,
-        ResolutionPreset.high,
-        enableAudio: true,
-        imageFormatGroup: ImageFormatGroup.jpeg,
-      );
+    try {
+      _cameras = await availableCameras();
+      if (_cameras != null && _cameras!.isNotEmpty) {
+        final camera = _cameras!.firstWhere(
+          (camera) => camera.lensDirection == CameraLensDirection.back,
+          orElse: () => _cameras!.first,
+        );
 
-      try {
+        _controller = CameraController(
+          camera,
+          ResolutionPreset.high,
+          enableAudio: true,
+          imageFormatGroup: ImageFormatGroup.jpeg,
+        );
+
         await _controller!.initialize();
         if (mounted) {
           setState(() {
             _isInit = true;
           });
         }
-      } on CameraException catch (e) {
-        debugPrint('Camera error: $e');
+      } else {
+        debugPrint('No cameras found');
+        if (mounted)
+          setState(() => _isInit = true); // Allow UI to load even if no camera
       }
+    } catch (e) {
+      debugPrint('Camera error: $e');
+      if (mounted) setState(() => _isInit = true);
     }
   }
 
@@ -151,15 +173,37 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
-    if (!_isInit || _controller == null) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    }
+    // if (!_isInit) {
+    //   return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    // }
+
+    // if (_isSimulator) {
+    //   return Scaffold(
+    //     appBar: AppBar(title: const Text('Data Capture')),
+    //     body: const Center(
+    //       child: Padding(
+    //         padding: EdgeInsets.all(20.0),
+    //         child: Text(
+    //           'Camera not available on iOS Simulator.\nPlease use a physical device to test camera features.',
+    //           textAlign: TextAlign.center,
+    //           style: TextStyle(fontSize: 16),
+    //         ),
+    //       ),
+    //     ),
+    //   );
+    // }
+
+    // if (_controller == null || !_controller!.value.isInitialized) {
+    //   return const Scaffold(
+    //     body: Center(child: Text('Camera not initialized')),
+    //   );
+    // }
 
     return Scaffold(
       body: Stack(
         fit: StackFit.expand,
         children: [
-          CameraPreview(_controller!),
+          //CameraPreview(_controller!),
 
           // Controls
           Positioned(
