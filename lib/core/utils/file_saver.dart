@@ -66,5 +66,6 @@ Future<void> saveFileToDownloads(
 }
 
 Future<void> _shareFile(File file, String fileName) async {
+  // ignore: deprecated_member_use
   await Share.shareXFiles([XFile(file.path)], text: fileName);
 }

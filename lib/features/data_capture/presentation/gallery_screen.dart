@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 import 'package:archive/archive_io.dart';
-import 'package:share_plus/share_plus.dart';
-import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/utils/file_saver.dart';
 
 class GalleryScreen extends StatefulWidget {

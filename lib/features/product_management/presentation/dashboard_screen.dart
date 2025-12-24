@@ -5,6 +5,7 @@ import '../../../../core/presentation/pdf_preview_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import '../../../../core/utils/file_saver.dart';
+import 'package:color_detection_app/features/detection/presentation/analysis_screen.dart';
 import '../data/product_repository.dart';
 import '../domain/product.dart';
 
@@ -221,6 +222,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
       appBar: AppBar(
         title: const Text('Product Dashboard'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.analytics_outlined),
+            tooltip: 'Static Analysis',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const AnalysisScreen()),
+              );
+            },
+          ),
           if (_products.isNotEmpty) ...[
             IconButton(
               icon: const Icon(Icons.table_view),

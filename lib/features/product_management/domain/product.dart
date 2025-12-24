@@ -26,6 +26,14 @@ class Product {
     required this.stockStatus,
   });
 
+  Product copyWith({String? id, String? supplier, StockStatus? stockStatus}) {
+    return Product(
+      id: id ?? this.id,
+      supplier: supplier ?? this.supplier,
+      stockStatus: stockStatus ?? this.stockStatus,
+    );
+  }
+
   Map<String, dynamic> toJson() {
     return {'id': id, 'supplier': supplier, 'stockStatus': stockStatus.index};
   }

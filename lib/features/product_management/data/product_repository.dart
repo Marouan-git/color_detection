@@ -1,7 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import '../domain/product.dart';
+
+final productRepositoryProvider = Provider<ProductRepository>((ref) {
+  return ProductRepository();
+});
 
 class ProductRepository {
   static const String _fileName = 'products.json';

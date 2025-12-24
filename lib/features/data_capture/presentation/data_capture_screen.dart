@@ -20,7 +20,7 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
   CameraController? _controller;
   List<CameraDescription>? _cameras;
   bool _isRecording = false;
-  bool _isInit = false;
+
   String? _lastCapturePath;
   CaptureMode _mode = CaptureMode.photo;
 
@@ -52,18 +52,13 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
     }
   }
 
-  bool _isSimulator = false;
-
   Future<void> _initCamera() async {
     final deviceInfo = DeviceInfoPlugin();
     if (Platform.isIOS) {
       final iosInfo = await deviceInfo.iosInfo;
       if (!iosInfo.isPhysicalDevice) {
         if (mounted) {
-          setState(() {
-            _isSimulator = true;
-            _isInit = true;
-          });
+          setState(() {});
         }
         return;
       }
@@ -85,19 +80,23 @@ class _DataCaptureScreenState extends State<DataCaptureScreen>
         );
 
         await _controller!.initialize();
+        // Lower exposure to highlight LEDs vs background
+        try {
+          await _controller!.setExposureOffset(-2.0);
+        } catch (e) {
+          debugPrint('Error setting exposure offset: $e');
+        }
+
         if (mounted) {
-          setState(() {
-            _isInit = true;
-          });
+          setState(() {});
         }
       } else {
         debugPrint('No cameras found');
-        if (mounted)
-          setState(() => _isInit = true); // Allow UI to load even if no camera
+        if (mounted) {}
       }
     } catch (e) {
       debugPrint('Camera error: $e');
-      if (mounted) setState(() => _isInit = true);
+      if (mounted) {}
     }
   }
 

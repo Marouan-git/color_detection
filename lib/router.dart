@@ -6,6 +6,7 @@ import '../features/data_capture/presentation/gallery_screen.dart';
 
 // Placeholder screens for routing setup
 import '../features/data_capture/presentation/data_capture_screen.dart';
+import '../features/detection/presentation/analysis_screen.dart';
 
 final router = GoRouter(
   initialLocation: '/',
@@ -33,6 +34,10 @@ final router = GoRouter(
     GoRoute(
       path: '/gallery',
       builder: (context, state) => const GalleryScreen(),
+    ),
+    GoRoute(
+      path: '/analysis',
+      builder: (context, state) => const AnalysisScreen(),
     ),
   ],
 );

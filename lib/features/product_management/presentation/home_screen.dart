@@ -120,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<StockStatus>(
-                  value: _selectedStockStatus,
+                  initialValue: _selectedStockStatus,
                   decoration: const InputDecoration(
                     labelText: 'Stock Status',
                     prefixIcon: Icon(Icons.inventory),
@@ -151,9 +151,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
-                  onPressed: () => context.push('/capture'),
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Go to Data Capture'),
+                  onPressed: () => context.push('/analysis'),
+                  icon: const Icon(Icons.analytics),
+                  label: const Text('Analyze Product'),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
