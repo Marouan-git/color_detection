@@ -8,7 +8,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
 
     // Verify Title
-    expect(find.text('Traffic Sensor Detection'), findsOneWidget);
+    expect(find.text('Stock Status Detection'), findsOneWidget);
 
     // Verify Product Management Header
     expect(find.text('Product Management'), findsOneWidget);
@@ -28,7 +28,6 @@ void main() {
     // Verify Buttons
     expect(find.text('Generate QR Code'), findsOneWidget);
     expect(find.text('View Product Dashboard'), findsOneWidget);
-    expect(find.text('Go to Data Capture'), findsOneWidget);
-    expect(find.text('Manage Captured Data'), findsOneWidget);
+    expect(find.text('Analyze Product'), findsOneWidget);
   });
 }

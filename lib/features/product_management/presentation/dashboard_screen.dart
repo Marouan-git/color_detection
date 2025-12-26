@@ -10,20 +10,22 @@ import '../data/product_repository.dart';
 import '../domain/product.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final ProductRepository? repository;
+  const DashboardScreen({super.key, this.repository});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  final _repository = ProductRepository();
+  late final ProductRepository _repository;
   List<Product> _products = [];
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _repository = widget.repository ?? ProductRepository();
     _loadProducts();
   }
 
@@ -31,7 +33,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _loading = true);
     final products = await _repository.getProducts();
     setState(() {
-      _products = products;
+      _products = products
+        ..sort((a, b) => b.lastUpdated.compareTo(a.lastUpdated));
       _loading = false;
     });
   }
@@ -121,9 +124,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final header = 'Product ID,Supplier,Stock Status\n';
+      final header = 'Product ID,Supplier,Stock Status,Last Updated\n';
       final rows = _products
-          .map((p) => '${p.id},${p.supplier},${p.stockStatus.label}')
+          .map(
+            (p) =>
+                '${p.id},${p.supplier},${p.stockStatus.label},${p.lastUpdated.toIso8601String()}',
+          )
           .join('\n');
       final csvContent = '$header$rows';
 
@@ -216,8 +222,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  StockStatus? _filterStatus;
+
   @override
   Widget build(BuildContext context) {
+    // Filter logic
+    final displayedProducts = _filterStatus == null
+        ? _products
+        : _products.where((p) => p.stockStatus == _filterStatus).toList();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Product Dashboard'),
@@ -225,11 +238,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
           IconButton(
             icon: const Icon(Icons.analytics_outlined),
             tooltip: 'Static Analysis',
-            onPressed: () {
-              Navigator.push(
+            onPressed: () async {
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (context) => const AnalysisScreen()),
               );
+              if (mounted) {
+                _loadProducts();
+              }
             },
           ),
           if (_products.isNotEmpty) ...[
@@ -248,108 +264,208 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _products.isEmpty
-          ? const Center(child: Text('No products registered yet.'))
           : Column(
               children: [
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
+                // 1. Status Summary
+                if (_products.isNotEmpty) _buildStatusSummary(),
+
+                // 2. Filter & Swipe Hint
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
                   child: Row(
                     children: [
-                      Icon(Icons.swipe, size: 16, color: Colors.grey),
-                      SizedBox(width: 8),
-                      Text(
-                        'Swipe table to view actions',
+                      const Icon(Icons.filter_list, size: 20),
+                      const SizedBox(width: 8),
+                      DropdownButton<StockStatus>(
+                        value: _filterStatus,
+                        hint: const Text('Filter by Status'),
+                        underline: Container(), // Remove default underline
+                        icon: const Icon(Icons.arrow_drop_down),
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('All Statuses'),
+                          ),
+                          ...StockStatus.values.map((status) {
+                            return DropdownMenuItem(
+                              value: status,
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      color: _getStockColor(status),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(status.label),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                        onChanged: (val) => setState(() => _filterStatus = val),
+                      ),
+                      const Spacer(),
+                      const Icon(Icons.swipe, size: 16, color: Colors.grey),
+                      const SizedBox(width: 4),
+                      const Text(
+                        'Swipe table',
                         style: TextStyle(
                           color: Colors.grey,
                           fontStyle: FontStyle.italic,
+                          fontSize: 12,
                         ),
                       ),
                     ],
                   ),
                 ),
+
+                // 3. Data Table
                 Expanded(
-                  child: Scrollbar(
-                    controller: _verticalController,
-                    thumbVisibility: true,
-                    trackVisibility: true,
-                    child: SingleChildScrollView(
-                      controller: _verticalController,
-                      scrollDirection: Axis.vertical,
-                      child: Scrollbar(
-                        controller: _horizontalController,
-                        notificationPredicate: (notification) =>
-                            notification.depth == 1,
-                        thumbVisibility: true,
-                        trackVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _horizontalController,
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            columns: const [
-                              DataColumn(label: Text('Product ID')),
-                              DataColumn(label: Text('Supplier')),
-                              DataColumn(label: Text('Stock')),
-                              DataColumn(label: Text('Action')),
-                            ],
-                            rows: _products.map((product) {
-                              return DataRow(
-                                cells: [
-                                  DataCell(Text(product.id)),
-                                  DataCell(Text(product.supplier)),
-                                  DataCell(
-                                    Row(
-                                      children: [
-                                        Container(
-                                          width: 12,
-                                          height: 12,
-                                          decoration: BoxDecoration(
-                                            color: _getStockColor(
-                                              product.stockStatus,
+                  child: displayedProducts.isEmpty
+                      ? const Center(
+                          child: Text('No products found matching filter.'),
+                        )
+                      : Scrollbar(
+                          controller: _verticalController,
+                          thumbVisibility: true,
+                          trackVisibility: true,
+                          child: SingleChildScrollView(
+                            controller: _verticalController,
+                            scrollDirection: Axis.vertical,
+                            child: Scrollbar(
+                              controller: _horizontalController,
+                              notificationPredicate: (notification) =>
+                                  notification.depth == 1,
+                              thumbVisibility: true,
+                              trackVisibility: true,
+                              child: SingleChildScrollView(
+                                controller: _horizontalController,
+                                scrollDirection: Axis.horizontal,
+                                child: DataTable(
+                                  columns: const [
+                                    DataColumn(label: Text('Product ID')),
+                                    DataColumn(label: Text('Supplier')),
+                                    DataColumn(label: Text('Stock')),
+                                    DataColumn(
+                                      label: Text('Last Updated'),
+                                    ), // New Column
+                                    DataColumn(label: Text('Action')),
+                                  ],
+                                  rows: displayedProducts.map((product) {
+                                    return DataRow(
+                                      cells: [
+                                        DataCell(Text(product.id)),
+                                        DataCell(Text(product.supplier)),
+                                        DataCell(
+                                          Row(
+                                            children: [
+                                              Container(
+                                                width: 12,
+                                                height: 12,
+                                                decoration: BoxDecoration(
+                                                  color: _getStockColor(
+                                                    product.stockStatus,
+                                                  ),
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(product.stockStatus.label),
+                                            ],
+                                          ),
+                                        ),
+                                        // New Cell: Last Updated
+                                        DataCell(
+                                          Text(
+                                            "${product.lastUpdated.year}-${product.lastUpdated.month.toString().padLeft(2, '0')}-${product.lastUpdated.day.toString().padLeft(2, '0')} ${product.lastUpdated.hour.toString().padLeft(2, '0')}:${product.lastUpdated.minute.toString().padLeft(2, '0')}:${product.lastUpdated.second.toString().padLeft(2, '0')}",
+                                            style: const TextStyle(
+                                              fontSize: 12,
                                             ),
-                                            shape: BoxShape.circle,
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        Text(product.stockStatus.label),
-                                      ],
-                                    ),
-                                  ),
-                                  DataCell(
-                                    Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.qr_code),
-                                          onPressed: () => context.push(
-                                            '/qr',
-                                            extra: product.id,
+                                        DataCell(
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              IconButton(
+                                                icon: const Icon(Icons.qr_code),
+                                                onPressed: () => context.push(
+                                                  '/qr',
+                                                  extra: product.id,
+                                                ),
+                                                tooltip: 'View QR',
+                                              ),
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.delete,
+                                                  color: Colors.red,
+                                                ),
+                                                onPressed: () =>
+                                                    _deleteProduct(product),
+                                                tooltip: 'Delete Product',
+                                              ),
+                                            ],
                                           ),
-                                          tooltip: 'View QR',
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.delete,
-                                            color: Colors.red,
-                                          ),
-                                          onPressed: () =>
-                                              _deleteProduct(product),
-                                          tooltip: 'Delete Product',
                                         ),
                                       ],
-                                    ),
-                                  ),
-                                ],
-                              );
-                            }).toList(),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildStatusSummary() {
+    final counts = <StockStatus, int>{};
+    for (var s in StockStatus.values) {
+      counts[s] = _products.where((p) => p.stockStatus == s).length;
+    }
+
+    return Card(
+      margin: const EdgeInsets.all(12),
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 8.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: StockStatus.values.map((status) {
+            final color = _getStockColor(status);
+            return Column(
+              children: [
+                Text(
+                  counts[status].toString(),
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(Icons.circle, size: 10, color: color),
+                    const SizedBox(width: 4),
+                    Text(status.label, style: const TextStyle(fontSize: 12)),
+                  ],
+                ),
+              ],
+            );
+          }).toList(),
+        ),
+      ),
     );
   }
 }

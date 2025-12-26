@@ -60,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
         id: productId,
         supplier: supplier,
         stockStatus: _selectedStockStatus,
+        lastUpdated: DateTime.now(),
       );
 
       await _repository.saveProduct(product);
@@ -155,12 +156,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.analytics),
                   label: const Text('Analyze Product'),
                 ),
-                const SizedBox(height: 16),
-                OutlinedButton.icon(
-                  onPressed: () => context.push('/export'),
-                  icon: const Icon(Icons.folder_open),
-                  label: const Text('Manage Captured Data'),
-                ),
+                // const SizedBox(height: 16),
+                // OutlinedButton.icon(
+                //   onPressed: () => context.push('/export'),
+                //   icon: const Icon(Icons.folder_open),
+                //   label: const Text('Manage Captured Data'),
+                // ),
               ],
             ),
           ),

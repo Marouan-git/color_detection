@@ -65,7 +65,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         final repo = ref.read(productRepositoryProvider);
         final product = await repo.getProduct(result.qrCode!);
         if (product != null) {
-          final updatedProduct = product.copyWith(stockStatus: result.status!);
+          final updatedProduct = product.copyWith(
+            stockStatus: result.status!,
+            lastUpdated: DateTime.now(),
+          );
           await repo.saveProduct(updatedProduct);
         }
       } catch (e) {
