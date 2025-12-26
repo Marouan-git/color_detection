@@ -4,6 +4,12 @@ Traffic Sensor Detection Application for stock status management.
 
 ## Milestone 2: Static Detection & Analysis
 
+### 🔍 How algorithm works
+1. **QR Detection**: The app first scans for QR codes in the image to locate the products.
+2. **Cone Search**: Once the QR codes are located, the algorithm computes a cone shape above each QR code to locate the LED indicator.
+3. **LED Color Detection**: It then analyzes the light indicator to detect the color (Green, Yellow, or Red).
+4. **Status Detection**: Based on the detected color, the stock status of the corresponding product is determined and updated automatically.
+
 ### Features
 - **Static Analysis (Cone Search)**:
   - **Methods**: Analyze stock by **taking a new picture** or **uploading an image** from your device.
