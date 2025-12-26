@@ -1,40 +1,41 @@
 # Traffic Sensor Detection App
 
-Traffic Sensor Detection Application for managing products and capturing data (photos/videos) for AI model training.
+Traffic Sensor Detection Application for stock status management.
 
-## Milestone 1: App Foundation & Data Capture
+## Milestone 2: Static Detection & Analysis
 
 ### Features
-- **Product Management**: 
-  - Input Product IDs and Supplier names.
-  - Set Stock Status (In Stock, Low Stock, Out of Stock).
-  - Generate an associated QR code and print it or save it to PDF format.
-  - Persistence of product data.
-- **Dashboard**:
-  - View all registered products in a table.
-  - Visual indicators for stock status.
-  - QR code for each product.
-  - Remove products.
-  - Bulk print all QR codes to a single PDF.
-  - Export products list as a CSV file.
-- **QR Code Tools**: Save QR codes as PDF (share image disabled for now).
-- **Data Capture**:
-  - Custom camera interface to capture photos and videos.
-  - Toggle between Photo and Video modes.
-  - In-session gallery preview.
-- **Gallery & Data Export**:
-  - View and delete captured images and videos.
-  - Export all data as a ZIP file (Download/Share).
+- **Static Analysis (Cone Search)**:
+  - **Methods**: Analyze stock by **taking a new picture** or **uploading an image** from your device.
+  - **Automated Status Update**:
+    - **In Stock**: Green color detected.
+    - **Low Stock**: Yellow color detected.
+    - **Out of Stock**: Red color detected.
+  - **Live Sync**: If detection results are found, the product's status is **automatically updated** on the Dashboard.
+  - **Visual Feedback**: View the analyzed image with detection directly in the app.
+
+- **Enhanced Dashboard**:
+  - **Status Overview**: Summary cards at the top showing total products and counts for each stock status.
+  - **Sorting & Filtering**:
+    - Filter products by specific stock status (In Stock, Low Stock, Out of Stock).
+    - Auto-sorts table by "Last Updated" (most recent first).
+  - **Detailed Tracking**: "Last Updated" timestamp column added to the table and CSV export.
+  - **Live Synchronization**: Status changes from analysis are immediately reflected on the dashboard.
+
+- **Product Management**:
+  - **Core Features**: Create and delete products.
+  - **QR Codes**: Generate and print QR codes for products.
+  - **CSV Export**: Export products data to a CSV file.
 
 ---
 
 ### 📦 How to Install
 
-1. **Receive the File**: You will receive a file named `app-foundation.apk`.
+1. **Receive the File**: You will receive a file named `app-release.apk` (or similar).
 2. **Download**: Save this file to your Android phone.
 3. **Install**:
-   - Tap on the `app-foundation.apk` file in your phone's file manager or downloads folder.
-   - If prompted, allow installation from "Unknown Sources" (this is normal for apps not from the Play Store).
+   - Tap on the APK file in your phone's file manager.
+   - If prompted, allow installation from "Unknown Sources".
    - Tap **Install**.
 4. **Open**: Once installed, look for the app called "color_detection".
 
@@ -43,6 +44,7 @@ Traffic Sensor Detection Application for managing products and capturing data (p
 ---
 
 ### How to Run (Development)
+
 1. **Prerequisites**: Flutter SDK installed.
 2. **Setup**:
    ```bash
@@ -55,7 +57,7 @@ Traffic Sensor Detection Application for managing products and capturing data (p
    (Connect a device or emulator. Camera features require a real device or a camera-enabled emulator).
 
 ### Testing
-Run tests with:
+Run the full test suite (including new sorting and algorithm tests):
 ```bash
 flutter test
 ```
