@@ -3,6 +3,7 @@ import 'package:color_detection_app/features/detection/data/cone_search_algorith
 import 'package:color_detection_app/features/detection/domain/detection_algorithm.dart';
 import 'package:color_detection_app/features/detection/domain/detection_result.dart';
 
+import 'package:color_detection_app/features/detection/presentation/real_time_analysis_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/widgets/detection_visualizer.dart';
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
@@ -134,6 +135,28 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const RealTimeAnalysisScreen(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.videocam),
+                label: const Text('Real-time Detection'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue[100],
+                  foregroundColor: Colors.blue[900],
+                ),
+              ),
             ),
           ),
 
