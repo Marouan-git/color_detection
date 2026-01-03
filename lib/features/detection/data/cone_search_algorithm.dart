@@ -11,22 +11,23 @@ import 'package:opencv_dart/opencv_dart.dart' as cv;
 
 class ConeSearchAlgorithm extends DetectionAlgorithm {
   @override
-  String get name => 'Vector Cone Search (v5.0 – Production)';
+  String get name => 'Vector Cone Search (v6.0 – Homography & Robust)';
 
   @override
   String get description =>
-      'Production-ready algorithm with robust Mat handling and color spaces.';
+      'Uses perspective projection for accurate 3D cone placement and dynamic thresholds for LED detection.';
 
   // --- Config ---
   final double coneGapPercent = 0.2;
-  final double coneHeightFactor = 3.7;
+  final double coneHeightFactor = 3.9;
 
-  // --- Parameters (Fixed for Production) ---
-  final double brightnessThreshold =
-      95.0; // Dynamic default, overridden by adaptive
-  final double saturationThreshold = 40.0;
-  final double minContourArea = 10.0;
-  final double circularityThreshold = 0.35;
+  // --- Parameters ---
+  // Note: brightnessThreshold is dynamic.
+  // circularity and minArea are now relative/stricter.
+  final double saturationThreshold =
+      20.0; // Lowered slightly to catch washed-out LEDs
+  final double strictCircularity =
+      0.35; // Increased from 0.25 to 0.60 for circles
 
   @override
   Future<List<DetectionResult>> process(File image) async {
@@ -38,13 +39,11 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       final barcodes = await barcodeScanner.processImage(inputImage);
 
       if (barcodes.isEmpty) {
-        // No QR found, we don't even touch OpenCV.
         return [
           DetectionResult(message: 'No QR Code found.', algorithmName: name),
         ];
       }
 
-      // Only read image if we actually have work to do
       final mat = cv.imread(image.path);
       if (mat.isEmpty) {
         return [
@@ -86,17 +85,33 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
   ) {
     // --- 0. Geometry & Cone ---
     final cone = _calculateCone(qrCorners);
-    if (cone.isEmpty) {
-      return _fail(qrValue, qrCorners, cone, "Invalid Geometry");
+
+    // Bounds Check
+    bool allOutside = cone.every(
+      (p) =>
+          p.dx < 0 ||
+          p.dx > fullImage.cols ||
+          p.dy < 0 ||
+          p.dy > fullImage.rows,
+    );
+    if (cone.isEmpty || allOutside) {
+      return _fail(qrValue, qrCorners, cone, "Target region off-screen");
     }
 
-    final tl = qrCorners[0];
-    final tr = qrCorners[1];
-    final topMidGlobal = (tl + tr) / 2.0;
+    // Dynamic Area Calculation (0.5% of QR area)
+    //final qrWidth = (qrCorners[1] - qrCorners[0]).distance;
+    final qrHeight = (qrCorners[3] - qrCorners[0]).distance; // TL to BL
+    final dynamicMinArea = 10.0; //(qrWidth * qrWidth) * 0.0007;
 
-    // --- 1. Safe ROI Extraction ---
-    int minX = fullImage.cols, minY = fullImage.rows;
-    int maxX = 0, maxY = 0;
+    // NEW: Distance Constraints
+    // Min: 90% of QR height (avoids detecting the QR itself or close reflections)
+    // Max: 350% of QR height (avoids detecting lights far in the background)
+    final minLedDist = qrHeight * 0.9;
+    final maxLedDist = qrHeight * 3.5;
+
+    // --- 1. Extract ROI ---
+    // (Standard ROI extraction code here - kept brief for readability)
+    int minX = fullImage.cols, minY = fullImage.rows, maxX = 0, maxY = 0;
     for (final p in cone) {
       minX = math.min(minX, p.dx.toInt());
       maxX = math.max(maxX, p.dx.toInt());
@@ -108,29 +123,26 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     minY = (minY - pad).clamp(0, fullImage.rows);
     maxX = (maxX + pad).clamp(0, fullImage.cols);
     maxY = (maxY + pad).clamp(0, fullImage.rows);
-    final w = maxX - minX;
-    final h = maxY - minY;
+    final roiMat = fullImage.region(
+      cv.Rect(minX, minY, maxX - minX, maxY - minY),
+    );
 
-    if (w <= 0 || h <= 0) return _fail(qrValue, qrCorners, cone, "Invalid ROI");
-
-    final roiMat = fullImage.region(cv.Rect(minX, minY, w, h));
     cv.Mat? roiHsv;
-    cv.Mat? coneMask;
-    cv.Mat? brightMask;
+    cv.Mat? mask;
+    cv.Mat? vChannel;
 
     try {
       // --- 2. Pre-processing ---
-      // Apply Blur to reduce noise (matches Python)
       final roiBlurred = cv.gaussianBlur(roiMat, (5, 5), 0);
-
-      // COLOR SPACE FIX:
-      // Standard OpenCV is BGR. We convert BGR -> HSV.
       roiHsv = cv.cvtColor(roiBlurred, cv.COLOR_BGR2HSV);
-
       roiBlurred.dispose();
 
-      // --- 3. Masks ---
-      coneMask = cv.Mat.zeros(h, w, cv.MatType.CV_8UC1);
+      // --- 3. Cone Mask ---
+      final coneMask = cv.Mat.zeros(
+        roiMat.rows,
+        roiMat.cols,
+        cv.MatType.CV_8UC1,
+      );
       final localCone = cone
           .map((p) => cv.Point((p.dx - minX).toInt(), (p.dy - minY).toInt()))
           .toList();
@@ -138,149 +150,146 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       cv.fillPoly(coneMask, vecVec, cv.Scalar(255, 0, 0, 0));
       vecVec.dispose();
 
-      // Adaptive Brightness
+      // --- 4. INTENSITY-FIRST DETECTION ---
+
+      // A. Extract Value Channel
       final channels = cv.split(roiHsv);
-      final vChannel = channels[2];
+      vChannel = channels[2];
+      channels[0].dispose();
+      channels[1].dispose();
 
-      // Compute threshold using robust Mean+StdDev
-      final computedThresh = _computeSafeAdaptiveBrightness(vChannel, coneMask);
+      // B. Compute Threshold
+      // We look for things that are SIGNIFICANTLY brighter than the background
+      final (meanS, stdS) = cv.meanStdDev(vChannel, mask: coneMask);
+      double threshVal = meanS.val1 + (stdS.val1 * 2.0); // Strict threshold
+      threshVal = threshVal.clamp(160.0, 240.0); // Sanity clamps
 
-      final (_, bMask) = cv.threshold(
+      // C. Create "Bright Objects" Mask
+      final (_, brightMask) = cv.threshold(
         vChannel,
-        computedThresh.toDouble(),
+        threshVal,
         255,
         cv.THRESH_BINARY,
       );
-      brightMask = bMask;
 
-      // Disposal of channels
-      for (var c in channels) {
-        c.dispose();
-      }
+      // D. Apply Cone Mask
+      mask = cv.Mat.zeros(roiMat.rows, roiMat.cols, cv.MatType.CV_8UC1);
+      cv.bitwiseAND(brightMask, coneMask, dst: mask);
+      brightMask.dispose();
+      coneMask.dispose();
 
-      // --- 4. Find Candidates ---
+      // --- 5. Analyze Candidates ---
+      final (contours, hierarchy) = cv.findContours(
+        mask,
+        cv.RETR_EXTERNAL,
+        cv.CHAIN_APPROX_SIMPLE,
+      );
+
       final candidates = <Map<String, dynamic>>[];
-      final s = saturationThreshold;
-      final v = computedThresh.toDouble();
 
-      void findCandidatesForColor(
-        String label,
-        List<List<double>> ranges,
-        StockStatus status,
-        Color visColor,
-      ) {
-        if (roiHsv == null || brightMask == null || coneMask == null) return;
+      final topMidGlobal = (qrCorners[0] + qrCorners[1]) / 2.0;
 
-        cv.Mat? mask;
-
-        for (final range in ranges) {
-          final lower = cv.Mat.zeros(h, w, cv.MatType.CV_8UC3);
-          lower.setTo(cv.Scalar(range[0], range[1], v, 0));
-
-          final upper = cv.Mat.zeros(h, w, cv.MatType.CV_8UC3);
-          upper.setTo(cv.Scalar(range[3], range[4], range[5], 0));
-
-          final rng = cv.inRange(roiHsv, lower, upper);
-          lower.dispose();
-          upper.dispose();
-
-          if (mask == null) {
-            mask = rng;
-          } else {
-            final newMask = cv.bitwiseOR(mask, rng);
-            mask.dispose();
-            rng.dispose();
-            mask = newMask;
-          }
+      for (final contour in contours) {
+        final area = cv.contourArea(contour);
+        if (area < dynamicMinArea) {
+          print("Area too small: $area");
+          continue;
         }
 
-        if (mask == null) return;
+        final perimeter = cv.arcLength(contour, true);
+        if (perimeter == 0) continue;
+        final circularity = (4 * math.pi * area) / (perimeter * perimeter);
 
-        // Combine Masks
-        final tmp = cv.Mat.zeros(h, w, cv.MatType.CV_8UC1);
-        cv.bitwiseAND(mask, brightMask, dst: tmp);
-        mask.dispose();
+        // Strict circularity because LEDs are round light sources
+        if (circularity > 0.35) {
+          // --- 6. COLOR SAMPLING (The "Better" Part) ---
+          // We don't guess the color. We ASK the blob what color it is.
+          // Calculate centroid for distance sorting
+          final M = cv.moments(cv.Mat.fromVec(contour));
+          if (M.m00 == 0) continue;
+          final cx = M.m10 / M.m00;
+          final cy = M.m01 / M.m00;
+          final globalCentroid = Offset(minX + cx, minY + cy);
 
-        final finalMask = cv.Mat.zeros(h, w, cv.MatType.CV_8UC1);
-        cv.bitwiseAND(tmp, coneMask, dst: finalMask);
-        tmp.dispose();
+          final dist = (globalCentroid - topMidGlobal).distance;
 
-        final (contours, hierarchy) = cv.findContours(
-          finalMask,
-          cv.RETR_EXTERNAL,
-          cv.CHAIN_APPROX_SIMPLE,
-        );
-        finalMask.dispose();
+          if (dist < minLedDist || dist > maxLedDist) {
+            // Skip this candidate if it is too close or too far
+            continue;
+          }
 
-        for (final contour in contours) {
-          final area = cv.contourArea(contour);
-          if (area > minContourArea) {
-            final perimeter = cv.arcLength(contour, true);
-            if (perimeter == 0) continue;
+          // Create a mask for just this one LED candidate
+          final singleLedMask = cv.Mat.zeros(
+            roiMat.rows,
+            roiMat.cols,
+            cv.MatType.CV_8UC1,
+          );
+          final cVec = cv.VecVecPoint.fromList([
+            contour.toList(),
+          ]); // tedious conversion
+          cv.drawContours(
+            singleLedMask,
+            cVec,
+            -1,
+            cv.Scalar(255, 0, 0, 0),
+            thickness: -1,
+          );
+          cVec.dispose();
 
-            final circularity = (4 * math.pi * area) / (perimeter * perimeter);
+          // Calculate average color INSIDE the blob
+          final meanColor = cv.mean(roiHsv, mask: singleLedMask);
+          singleLedMask.dispose();
 
-            if (circularity > circularityThreshold) {
-              final contourMat = cv.Mat.fromVec(contour);
-              final M = cv.moments(contourMat);
-              contourMat.dispose();
+          final double h = meanColor.val1; // Average Hue
+          final double s = meanColor.val2; // Average Saturation
 
-              if (M.m00 != 0) {
-                final cxLocal = M.m10 / M.m00;
-                final cyLocal = M.m01 / M.m00;
-                final globalCentroid = Offset(minX + cxLocal, minY + cyLocal);
-                final dist = (globalCentroid - topMidGlobal).distance;
+          // CLASSIFICATION LOGIC
+          // Even if the center is white (S=0), the halo will pull the average S up.
+          // If Average S is still < 20, it's likely a white reflection/glare, not an LED.
 
-                candidates.add({
-                  'color': label,
-                  'status': status,
-                  'visColor': visColor,
-                  'dist': dist,
-                  'centroid': globalCentroid,
-                  'area': area,
-                  'circularity': circularity,
-                });
-              }
+          if (s > 25) {
+            StockStatus? status;
+            String colorLabel = "Unknown";
+            Color visColor = const Color(0xFF000000);
+
+            // Hue Ranges (OpenCV Hue is 0-180)
+            // Red: 0-10 and 160-180
+            // Yellow: 15-35
+            // Green: 35-85
+
+            if (h < 12 || h > 160) {
+              status = StockStatus.outOfStock;
+              colorLabel = "Red";
+              visColor = const Color(0xFFFF0000);
+            } else if (h > 15 && h < 35) {
+              status = StockStatus.lowStock;
+              colorLabel = "Yellow";
+              visColor = const Color(0xFFFFFF00);
+            } else if (h >= 35 && h < 90) {
+              // Wide green range
+              status = StockStatus.inStock;
+              colorLabel = "Green";
+              visColor = const Color(0xFF00FF00);
+            }
+
+            if (status != null) {
+              candidates.add({
+                'dist': dist,
+                'status': status,
+                'color': colorLabel,
+                'visColor': visColor,
+                'centroid': globalCentroid,
+              });
             }
           }
+        } else {
+          print("Circularity too small: $circularity");
         }
-        contours.dispose();
-        hierarchy.dispose();
       }
+      contours.dispose();
+      hierarchy.dispose();
 
-      // --- Ranges ---
-      // Red
-      findCandidatesForColor(
-        "Red",
-        [
-          [0, 40, v, 13, 255, 255],
-          [160, 40, v, 180, 255, 255],
-        ],
-        StockStatus.outOfStock,
-        const Color(0xFFFF0000),
-      );
-
-      // Yellow
-      findCandidatesForColor(
-        "Yellow",
-        [
-          [20, s, v, 33, 255, 255],
-        ],
-        StockStatus.lowStock,
-        const Color(0xFFFFCC00),
-      );
-
-      // Green
-      findCandidatesForColor(
-        "Green",
-        [
-          [37, s, v, 85, 255, 255],
-        ],
-        StockStatus.inStock,
-        const Color(0xFF00FF00),
-      );
-
-      // --- Select Winner ---
+      // --- 7. Winner Selection ---
       if (candidates.isNotEmpty) {
         candidates.sort(
           (a, b) => (a['dist'] as double).compareTo(b['dist'] as double),
@@ -300,57 +309,93 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
 
       return _fail(qrValue, qrCorners, cone, "No active light found");
     } finally {
+      // Dispose all Mats
       roiMat.dispose();
       roiHsv?.dispose();
-      coneMask?.dispose();
-      brightMask?.dispose();
+      mask?.dispose();
+      vChannel?.dispose();
     }
   }
 
   // --- Safe Brightness Calculation ---
   int _computeSafeAdaptiveBrightness(cv.Mat vChannel, cv.Mat mask) {
-    // Return tuple (mean, stddev)
     final (meanScalar, stdDevScalar) = cv.meanStdDev(vChannel, mask: mask);
-
     final meanVal = meanScalar.val1;
     final stdVal = stdDevScalar.val1;
 
-    // Note: Scalar objects from meanStdDev in opencv_dart might interact with GC.
-    // If we dispose them, we might get double-free if the library handles it.
-    // Leaving them undisposed for now as they are small structs.
-
-    // Mean + 1.5 StdDev covers ~93% of normal distribution.
-    // LEDs are outliers above this.
     double threshold = meanVal + (stdVal * 1.5);
 
-    return threshold.toInt().clamp(140, 220);
+    // Safety Floor: Never go below 100, even in dark rooms, to avoid noise
+    // Safety Ceiling: 220
+    return threshold.toInt().clamp(100, 220);
   }
 
-  // --- Geometry Helpers (Unchanged) ---
+  // --- 0. Geometry & Cone (Revised with Homography) ---
+  // --- 0. Geometry & Cone (Revised with 1000x Scale Fix) ---
   List<Offset> _calculateCone(List<Offset> corners) {
-    if (corners.length < 4) return [];
-    final tl = corners[0];
-    final tr = corners[1];
-    final br = corners[2];
-    final bl = corners[3];
-    final topMid = (tl + tr) / 2.0;
-    final botMid = (bl + br) / 2.0;
-    final vecUp = topMid - botMid;
-    final h = vecUp.distance;
-    if (h == 0) return [];
-    final unitUp = vecUp / h;
-    final unitRight = Offset(-unitUp.dy, unitUp.dx);
-    final qrW = (tr - tl).distance;
-    final startCenter = topMid + (unitUp * (h * coneGapPercent));
-    final baseW = qrW * 1.5;
-    final topW = qrW * 2.5;
-    final len = h * coneHeightFactor;
-    return [
-      startCenter - (unitRight * (baseW / 2)),
-      startCenter + (unitUp * len) - (unitRight * (topW / 2)),
-      startCenter + (unitUp * len) + (unitRight * (topW / 2)),
-      startCenter + (unitRight * (baseW / 2)),
-    ];
+    if (corners.length != 4) return [];
+
+    // CONSTANT: Scale ideal world up by 1000 to preserve precision with Integers
+    const double scale = 1000.0;
+
+    // 1. Destination: Actual QR corners (Screen Pixels)
+    // We cast to Int (VecPoint) as required by the library.
+    // Loss of <1px precision here is acceptable.
+    final destVec = cv.VecPoint.fromList(
+      corners.map((o) => cv.Point(o.dx.toInt(), o.dy.toInt())).toList(),
+    );
+
+    // 2. Source: Ideal Square scaled to 1000x1000
+    // (0,0), (1000,0), (1000,1000), (0,1000)
+    final srcVec = cv.VecPoint.fromList([
+      cv.Point(0, 0),
+      cv.Point((1.0 * scale).toInt(), 0),
+      cv.Point((1.0 * scale).toInt(), (1.0 * scale).toInt()),
+      cv.Point(0, (1.0 * scale).toInt()),
+    ]);
+
+    cv.Mat? M;
+    cv.Mat? idealConeMat;
+    cv.Mat? imageConeMat;
+    cv.VecPoint2f? vecRes;
+
+    try {
+      // 3. Calculate Homography using Integers
+      // Maps "1000x World" -> "Screen Pixels"
+      M = cv.getPerspectiveTransform(srcVec, destVec);
+
+      // 4. Define Cone in "1000x World"
+      // We multiply all our ratio constants by `scale`
+      const double startY = -0.2 * scale; // 20% gap
+      const double endY = (-0.2 - 3.9) * scale; // 390% length
+      const double baseHalfW = (1.5 / 2.0) * scale;
+      const double topHalfW = (2.5 / 2.0) * scale;
+      const double centerX = 0.5 * scale;
+
+      final idealConePoints = [
+        cv.Point2f(centerX - baseHalfW, startY),
+        cv.Point2f(centerX - topHalfW, endY),
+        cv.Point2f(centerX + topHalfW, endY),
+        cv.Point2f(centerX + baseHalfW, startY),
+      ];
+
+      // 5. Transform
+      // Even though M was made with Ints, it works on Floats for the projection.
+      idealConeMat = cv.Mat.fromVec(cv.VecPoint2f.fromList(idealConePoints));
+      imageConeMat = cv.perspectiveTransform(idealConeMat, M);
+
+      // 6. Extract results (Screen Pixels)
+      vecRes = cv.VecPoint2f.fromMat(imageConeMat);
+
+      return vecRes.toList().map((p) => Offset(p.x, p.y)).toList();
+    } finally {
+      srcVec.dispose();
+      destVec.dispose();
+      M?.dispose();
+      idealConeMat?.dispose();
+      imageConeMat?.dispose();
+      vecRes?.dispose();
+    }
   }
 
   DetectionResult _fail(

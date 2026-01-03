@@ -37,6 +37,11 @@
 *   **Export**: Existing ZIP export should include these new folders.
 *   **Stock Update**: Automatically update the product's status in the local database if positive detection occurs.
 
+### 5. Camera Hardware Controls
+*   **Focus Mode**: Toggle between auto and locked focus for consistent captures.
+*   **Tap to Focus**: Tap on camera preview to set a specific focus point.
+*   **Exposure Control**: Slider to adjust exposure offset for varying lighting conditions.
+
 ## User Stories
 
 ### US2.1: Algorithm Configuration

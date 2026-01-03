@@ -6,6 +6,7 @@ import 'package:color_detection_app/features/detection/domain/detection_result.d
 import 'package:color_detection_app/features/detection/presentation/widgets/detection_visualizer.dart';
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
+import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -77,26 +78,25 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
   }
 
-  Future<void> _pickImage(ImageSource source) async {
+  /// Opens the camera screen and processes the captured image
+  Future<void> _captureFromCamera() async {
+    final File? capturedFile = await Navigator.of(context).push<File>(
+      MaterialPageRoute(builder: (context) => const CameraCaptureScreen()),
+    );
+
+    if (capturedFile != null) {
+      await _setImageAndProcess(capturedFile);
+    }
+  }
+
+  /// Picks an image from gallery and processes it
+  Future<void> _pickFromGallery() async {
     try {
-      final XFile? pickedFile = await _picker.pickImage(source: source);
+      final XFile? pickedFile = await _picker.pickImage(
+        source: ImageSource.gallery,
+      );
       if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        // Decode image to get size for overlay scaling
-        final decodedImage = await decodeImageFromList(file.readAsBytesSync());
-
-        setState(() {
-          _selectedImage = file;
-          _imageSize = Size(
-            decodedImage.width.toDouble(),
-            decodedImage.height.toDouble(),
-          );
-          _results = [];
-          _isProcessing = false;
-        });
-
-        // Auto-process the new image
-        await _processImage();
+        await _setImageAndProcess(File(pickedFile.path));
       }
     } catch (e) {
       if (mounted) {
@@ -105,6 +105,25 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
       }
     }
+  }
+
+  /// Sets the image and triggers processing
+  Future<void> _setImageAndProcess(File file) async {
+    // Decode image to get size for overlay scaling
+    final decodedImage = await decodeImageFromList(file.readAsBytesSync());
+
+    setState(() {
+      _selectedImage = file;
+      _imageSize = Size(
+        decodedImage.width.toDouble(),
+        decodedImage.height.toDouble(),
+      );
+      _results = [];
+      _isProcessing = false;
+    });
+
+    // Auto-process the new image
+    await _processImage();
   }
 
   @override
@@ -120,7 +139,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
-                    onPressed: () => _pickImage(ImageSource.camera),
+                    onPressed: _captureFromCamera,
                     icon: const Icon(Icons.camera_alt),
                     label: const Text('Take Photo'),
                   ),
@@ -128,7 +147,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () => _pickImage(ImageSource.gallery),
+                    onPressed: _pickFromGallery,
                     icon: const Icon(Icons.image),
                     label: const Text('Upload Image'),
                   ),
