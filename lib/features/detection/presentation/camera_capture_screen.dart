@@ -5,9 +5,7 @@ import 'package:flutter/material.dart';
 /// A dedicated camera screen with hardware controls for capturing images.
 ///
 /// Provides the following controls:
-/// - Focus Mode: Toggle between auto and locked focus
 /// - Tap to Focus: Tap on preview to set focus point
-/// - Exposure: Slider to adjust exposure offset
 class CameraCaptureScreen extends StatefulWidget {
   const CameraCaptureScreen({super.key});
 
@@ -240,8 +238,6 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              const SizedBox(height: 16),
-
               // Bottom Controls Row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -271,43 +267,6 @@ class _CameraCaptureScreenState extends State<CameraCaptureScreen>
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildControlButton({
-    required IconData icon,
-    required String label,
-    required VoidCallback onTap,
-    bool isActive = false,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isActive ? Colors.yellow.withAlpha(50) : Colors.white12,
-            ),
-            child: Icon(
-              icon,
-              color: isActive ? Colors.yellow : Colors.white,
-              size: 24,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color: isActive ? Colors.yellow : Colors.white70,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

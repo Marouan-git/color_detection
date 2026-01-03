@@ -7,6 +7,7 @@ import 'package:color_detection_app/features/detection/presentation/widgets/dete
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
 import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
+import 'package:color_detection_app/features/detection/presentation/video_analysis_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
@@ -153,6 +154,25 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                   ),
                 ),
               ],
+            ),
+          ),
+
+          // Video Upload Button
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const VideoAnalysisScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.video_library),
+              label: const Text('Upload Video'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48),
+              ),
             ),
           ),
 

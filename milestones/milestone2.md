@@ -38,9 +38,14 @@
 *   **Stock Update**: Automatically update the product's status in the local database if positive detection occurs.
 
 ### 5. Camera Hardware Controls
-*   **Focus Mode**: Toggle between auto and locked focus for consistent captures.
 *   **Tap to Focus**: Tap on camera preview to set a specific focus point.
-*   **Exposure Control**: Slider to adjust exposure offset for varying lighting conditions.
+
+### 6. Video Processing
+*   **Video Upload**: Pick video from gallery for batch processing.
+*   **Frame Extraction**: Extract frames at 1 FPS using OpenCV for detection.
+*   **Batch Detection**: Run QR/LED detection on each frame, aggregate results.
+*   **Video Playback**: Play processed video with synced detection overlays.
+*   **Results Display**: Show list of all products detected with updated status.
 
 ## User Stories
 

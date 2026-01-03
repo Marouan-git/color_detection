@@ -26,8 +26,7 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
   // circularity and minArea are now relative/stricter.
   final double saturationThreshold =
       20.0; // Lowered slightly to catch washed-out LEDs
-  final double strictCircularity =
-      0.35; // Increased from 0.25 to 0.60 for circles
+  final double strictCircularity = 0.35;
 
   @override
   Future<List<DetectionResult>> process(File image) async {
@@ -192,7 +191,7 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       for (final contour in contours) {
         final area = cv.contourArea(contour);
         if (area < dynamicMinArea) {
-          print("Area too small: $area");
+          debugPrint("Area too small: $area");
           continue;
         }
 
@@ -283,7 +282,7 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
             }
           }
         } else {
-          print("Circularity too small: $circularity");
+          debugPrint("Circularity too small: $circularity");
         }
       }
       contours.dispose();
@@ -315,19 +314,6 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       mask?.dispose();
       vChannel?.dispose();
     }
-  }
-
-  // --- Safe Brightness Calculation ---
-  int _computeSafeAdaptiveBrightness(cv.Mat vChannel, cv.Mat mask) {
-    final (meanScalar, stdDevScalar) = cv.meanStdDev(vChannel, mask: mask);
-    final meanVal = meanScalar.val1;
-    final stdVal = stdDevScalar.val1;
-
-    double threshold = meanVal + (stdVal * 1.5);
-
-    // Safety Floor: Never go below 100, even in dark rooms, to avoid noise
-    // Safety Ceiling: 220
-    return threshold.toInt().clamp(100, 220);
   }
 
   // --- 0. Geometry & Cone (Revised with Homography) ---
