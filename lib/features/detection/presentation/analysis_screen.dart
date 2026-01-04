@@ -193,22 +193,22 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             const SizedBox(height: 12),
 
             // Real-time Detection Button
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => const RealtimeDetectionScreen(),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.videocam),
-              label: const Text('Real-time Detection'),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 48),
-                backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              ),
-            ),
+            // ElevatedButton.icon(
+            //   onPressed: () {
+            //     Navigator.of(context).push(
+            //       MaterialPageRoute(
+            //         builder: (context) => const RealtimeDetectionScreen(),
+            //       ),
+            //     );
+            //   },
+            //   icon: const Icon(Icons.videocam),
+            //   label: const Text('Real-time Detection'),
+            //   style: ElevatedButton.styleFrom(
+            //     minimumSize: const Size(double.infinity, 48),
+            //     backgroundColor: Theme.of(context).colorScheme.primary,
+            //     foregroundColor: Theme.of(context).colorScheme.onPrimary,
+            //   ),
+            // ),
           ],
         ),
       ),
