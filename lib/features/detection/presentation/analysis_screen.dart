@@ -132,12 +132,29 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Analyze Product')),
-      body: Column(
-        children: [
-          // Top Bar: Actions
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
+      body: _selectedImage == null ? _buildButtonsOnly() : _buildWithImage(),
+      floatingActionButton: _selectedImage != null
+          ? FloatingActionButton(
+              onPressed: () => setState(() {
+                _selectedImage = null;
+                _results = [];
+              }),
+              child: const Icon(Icons.close),
+            )
+          : null,
+    );
+  }
+
+  /// Build layout with centered buttons only (no image selected)
+  Widget _buildButtonsOnly() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(12.0, 12.0, 12.0, 150.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Take Photo & Upload Image row
+            Row(
               children: [
                 Expanded(
                   child: ElevatedButton.icon(
@@ -156,12 +173,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 ),
               ],
             ),
-          ),
+            const SizedBox(height: 32),
 
-          // Video Upload Button
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: OutlinedButton.icon(
+            // Video Upload Button
+            OutlinedButton.icon(
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
@@ -175,15 +190,10 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 minimumSize: const Size(double.infinity, 48),
               ),
             ),
-          ),
+            const SizedBox(height: 12),
 
-          // Real-time Detection Button
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
-            child: ElevatedButton.icon(
+            // Real-time Detection Button
+            ElevatedButton.icon(
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
@@ -199,108 +209,104 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
               ),
             ),
-          ),
+          ],
+        ),
+      ),
+    );
+  }
 
-          // Main Content: Image & Overlay
-          Expanded(
-            child: Center(
-              child: _selectedImage == null
-                  ? const Text('Select an image to start analysis')
-                  : _isProcessing
-                  ? const CircularProgressIndicator()
-                  : LayoutBuilder(
-                      builder: (context, constraints) {
-                        return Stack(
-                          children: [
-                            Image.file(
-                              _selectedImage!,
-                              fit: BoxFit.contain,
-                              width: constraints.maxWidth,
-                              height: constraints.maxHeight,
-                            ),
-                            if (_results.isNotEmpty && _imageSize != null)
-                              Positioned.fill(
-                                child: CustomPaint(
-                                  painter: DetectionResultPainter(
-                                    results: _results,
-                                    imageSize: _imageSize!,
-                                  ),
+  /// Build layout with image and results
+  Widget _buildWithImage() {
+    return Column(
+      children: [
+        // Main Content: Image & Overlay
+        Expanded(
+          child: Center(
+            child: _isProcessing
+                ? const CircularProgressIndicator()
+                : LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Stack(
+                        children: [
+                          Image.file(
+                            _selectedImage!,
+                            fit: BoxFit.contain,
+                            width: constraints.maxWidth,
+                            height: constraints.maxHeight,
+                          ),
+                          if (_results.isNotEmpty && _imageSize != null)
+                            Positioned.fill(
+                              child: CustomPaint(
+                                painter: DetectionResultPainter(
+                                  results: _results,
+                                  imageSize: _imageSize!,
                                 ),
                               ),
-                          ],
-                        );
-                      },
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        ),
+
+        // Results Panel (Multiple Results)
+        if (_results.isNotEmpty)
+          Container(
+            color: Colors.black87,
+            height: 150, // Fixed height for the list
+            width: double.infinity,
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16.0),
+              itemCount: _results.length,
+              separatorBuilder: (context, index) =>
+                  const Divider(color: Colors.white24),
+              itemBuilder: (context, index) {
+                final result = _results[index];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: result.detectedColor ?? Colors.grey,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Result: ${result.status?.label ?? "Unknown"}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
                     ),
+                    if (result.qrCode != null)
+                      Text(
+                        'Product: ${result.qrCode}',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    if (result.message != null)
+                      Text(
+                        result.message!,
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
-
-          // 3. Results Panel (Multiple Results)
-          if (_results.isNotEmpty)
-            Container(
-              color: Colors.black87,
-              height: 150, // Fixed height for the list
-              width: double.infinity,
-              child: ListView.separated(
-                padding: const EdgeInsets.all(16.0),
-                itemCount: _results.length,
-                separatorBuilder: (context, index) =>
-                    const Divider(color: Colors.white24),
-                itemBuilder: (context, index) {
-                  final result = _results[index];
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
-                              color: result.detectedColor ?? Colors.grey,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Result: ${result.status?.label ?? "Unknown"}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (result.qrCode != null)
-                        Text(
-                          'Product: ${result.qrCode}',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                      if (result.message != null)
-                        Text(
-                          result.message!,
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
-        ],
-      ),
-      floatingActionButton: _selectedImage != null
-          ? FloatingActionButton(
-              onPressed: () => setState(() {
-                _selectedImage = null;
-                _results = [];
-              }),
-              child: const Icon(Icons.close),
-            )
-          : null,
+      ],
     );
   }
 }

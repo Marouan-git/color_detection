@@ -177,10 +177,21 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
     }
   }
 
-  /// Initialize video player for playback
+  /// Initialize video player for playback (reuses existing controller if already initialized)
   Future<void> _initializeVideoPlayer() async {
     if (_videoFile == null) return;
 
+    // Reuse existing controller if already initialized (from processing phase)
+    if (_videoController != null && _videoController!.value.isInitialized) {
+      // Just add listener and mark as ready
+      _videoController!.addListener(_onVideoPositionChanged);
+      setState(() {
+        _isVideoInitialized = true;
+      });
+      return;
+    }
+
+    // Otherwise create new controller
     _videoController?.dispose();
     _videoController = VideoPlayerController.file(_videoFile!);
 
@@ -276,7 +287,7 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
         children: [
           // Action Button
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16.0, 150.0, 16.0, 16.0),
             child: ElevatedButton.icon(
               onPressed: _isProcessing ? null : _pickVideo,
               icon: const Icon(Icons.video_library),
