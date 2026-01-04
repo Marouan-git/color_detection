@@ -43,8 +43,11 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
         ];
       }
 
-      final mat = cv.imread(image.path);
+      // Read image bytes and decode with OpenCV (more portable than imread on iOS)
+      final imageBytes = await image.readAsBytes();
+      final mat = cv.imdecode(imageBytes, cv.IMREAD_COLOR);
       if (mat.isEmpty) {
+        debugPrint('OpenCV imdecode failed for path: ${image.path}');
         return [
           DetectionResult(
             message: 'Failed to load image from path.',

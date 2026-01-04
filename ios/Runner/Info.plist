@@ -30,6 +30,12 @@
 	<string>Need camera for color detection.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Need microphone for video.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs access to your photos and videos to upload media.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs permission to save and upload media.</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

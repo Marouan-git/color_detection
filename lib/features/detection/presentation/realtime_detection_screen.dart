@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:color_detection_app/features/detection/data/cone_search_algorithm.dart';
@@ -9,6 +10,7 @@ import 'package:color_detection_app/features/product_management/data/product_rep
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:image/image.dart' as img;
 
 /// Real-time camera detection screen with live overlays.
 class RealtimeDetectionScreen extends ConsumerStatefulWidget {
@@ -47,6 +49,12 @@ class _RealtimeDetectionScreenState
   // Size of captured frames for overlay scaling
   Size? _capturedImageSize;
 
+  // Platform check
+  bool get _isIOS => Platform.isIOS;
+
+  // Latest camera image for iOS processing
+  CameraImage? _latestCameraImage;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +66,7 @@ class _RealtimeDetectionScreenState
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _processingTimer?.cancel();
+    _stopImageStream();
     _controller?.dispose();
     // Clean up temp file
     if (_tempFramePath != null) {
@@ -75,6 +84,7 @@ class _RealtimeDetectionScreenState
 
     if (state == AppLifecycleState.inactive) {
       _stopProcessing();
+      _stopImageStream();
       controller.dispose();
     } else if (state == AppLifecycleState.resumed) {
       _initializeCamera();
@@ -94,11 +104,14 @@ class _RealtimeDetectionScreenState
         orElse: () => cameras.first,
       );
 
+      // Use BGRA8888 on iOS for easier conversion, YUV420 on Android
       _controller = CameraController(
         backCamera,
-        ResolutionPreset.high, // Use high for better QR detection
+        ResolutionPreset.medium, // Use medium for better performance
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+        imageFormatGroup: _isIOS
+            ? ImageFormatGroup.bgra8888
+            : ImageFormatGroup.yuv420,
       );
 
       await _controller!.initialize();
@@ -109,11 +122,30 @@ class _RealtimeDetectionScreenState
 
       if (mounted) {
         setState(() => _isInitialized = true);
+
+        if (_isIOS) {
+          // iOS: Use image stream
+          _startImageStream();
+        }
+
         _startProcessing();
       }
     } catch (e) {
       setState(() => _errorMessage = 'Camera init failed: $e');
     }
+  }
+
+  void _startImageStream() {
+    _controller?.startImageStream((CameraImage image) {
+      _latestCameraImage = image;
+    });
+  }
+
+  void _stopImageStream() {
+    try {
+      _controller?.stopImageStream();
+    } catch (_) {}
+    _latestCameraImage = null;
   }
 
   void _startProcessing() {
@@ -138,27 +170,54 @@ class _RealtimeDetectionScreenState
     _isDetecting = true;
 
     try {
-      // Capture frame to temp file
-      final XFile imageFile = await _controller!.takePicture();
+      File? frameFile;
+      Size? imageSize;
 
-      // Move/copy to our temp path for consistent processing
-      final frameFile = File(imageFile.path);
+      if (_isIOS) {
+        // iOS: Convert the latest camera image to JPEG
+        final cameraImage = _latestCameraImage;
+        if (cameraImage == null) {
+          _isDetecting = false;
+          return;
+        }
 
-      // Get actual image dimensions for overlay scaling
-      final imageBytes = await frameFile.readAsBytes();
-      final decodedImage = await decodeImageFromList(imageBytes);
-      final imageSize = Size(
-        decodedImage.width.toDouble(),
-        decodedImage.height.toDouble(),
-      );
+        final jpegBytes = await _convertCameraImageToJpeg(cameraImage);
+        if (jpegBytes == null) {
+          _isDetecting = false;
+          return;
+        }
+
+        // Save to temp file
+        frameFile = File(_tempFramePath!);
+        await frameFile.writeAsBytes(jpegBytes);
+
+        imageSize = Size(
+          cameraImage.width.toDouble(),
+          cameraImage.height.toDouble(),
+        );
+      } else {
+        // Android: Use takePicture
+        final XFile imageFile = await _controller!.takePicture();
+        frameFile = File(imageFile.path);
+
+        // Get actual image dimensions for overlay scaling
+        final imageBytes = await frameFile.readAsBytes();
+        final decodedImage = await decodeImageFromList(imageBytes);
+        imageSize = Size(
+          decodedImage.width.toDouble(),
+          decodedImage.height.toDouble(),
+        );
+      }
 
       // Process the frame
       final results = await _algorithm.process(frameFile);
 
-      // Clean up captured file
-      try {
-        frameFile.deleteSync();
-      } catch (_) {}
+      // Clean up captured file (only for Android, iOS reuses temp file)
+      if (!_isIOS) {
+        try {
+          frameFile.deleteSync();
+        } catch (_) {}
+      }
 
       if (mounted) {
         setState(() {
@@ -178,6 +237,76 @@ class _RealtimeDetectionScreenState
       debugPrint('Real-time detection error: $e');
     } finally {
       _isDetecting = false;
+    }
+  }
+
+  /// Convert CameraImage to JPEG bytes
+  Future<Uint8List?> _convertCameraImageToJpeg(CameraImage cameraImage) async {
+    try {
+      img.Image? image;
+
+      if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
+        // iOS BGRA8888 format
+        image = img.Image.fromBytes(
+          width: cameraImage.width,
+          height: cameraImage.height,
+          bytes: cameraImage.planes[0].bytes.buffer,
+          order: img.ChannelOrder.bgra,
+        );
+      } else if (cameraImage.format.group == ImageFormatGroup.yuv420) {
+        // Android YUV420 format - convert to RGB
+        image = _convertYUV420ToImage(cameraImage);
+      } else {
+        debugPrint('Unsupported camera format: ${cameraImage.format.group}');
+        return null;
+      }
+
+      if (image == null) return null;
+
+      // Encode to JPEG
+      return Uint8List.fromList(img.encodeJpg(image, quality: 85));
+    } catch (e) {
+      debugPrint('Error converting camera image: $e');
+      return null;
+    }
+  }
+
+  /// Convert YUV420 camera image to RGB Image (for Android)
+  img.Image? _convertYUV420ToImage(CameraImage cameraImage) {
+    try {
+      final width = cameraImage.width;
+      final height = cameraImage.height;
+      final yPlane = cameraImage.planes[0];
+      final uPlane = cameraImage.planes[1];
+      final vPlane = cameraImage.planes[2];
+
+      final image = img.Image(width: width, height: height);
+
+      for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+          final yIndex = y * yPlane.bytesPerRow + x;
+          final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
+
+          final yValue = yPlane.bytes[yIndex];
+          final uValue = uPlane.bytes[uvIndex];
+          final vValue = vPlane.bytes[uvIndex];
+
+          // YUV to RGB conversion
+          int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
+          int g =
+              (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128))
+                  .round()
+                  .clamp(0, 255);
+          int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
+
+          image.setPixelRgba(x, y, r, g, b, 255);
+        }
+      }
+
+      return image;
+    } catch (e) {
+      debugPrint('YUV conversion error: $e');
+      return null;
     }
   }
 

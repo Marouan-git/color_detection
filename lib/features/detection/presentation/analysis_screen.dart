@@ -6,7 +6,6 @@ import 'package:color_detection_app/features/detection/domain/detection_result.d
 import 'package:color_detection_app/features/detection/presentation/widgets/detection_visualizer.dart';
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
-import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/realtime_detection_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/video_analysis_screen.dart';
 import 'package:flutter/material.dart';
@@ -80,14 +79,24 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
   }
 
-  /// Opens the camera screen and processes the captured image
+  /// Opens the camera using image_picker and processes the captured image
+  /// This is more reliable on iOS than using the camera plugin directly
   Future<void> _captureFromCamera() async {
-    final File? capturedFile = await Navigator.of(context).push<File>(
-      MaterialPageRoute(builder: (context) => const CameraCaptureScreen()),
-    );
+    try {
+      final XFile? capturedFile = await _picker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.rear,
+      );
 
-    if (capturedFile != null) {
-      await _setImageAndProcess(capturedFile);
+      if (capturedFile != null) {
+        await _setImageAndProcess(File(capturedFile.path));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error capturing image: $e')));
+      }
     }
   }
 
@@ -193,22 +202,22 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
             const SizedBox(height: 12),
 
             // Real-time Detection Button
-            // ElevatedButton.icon(
-            //   onPressed: () {
-            //     Navigator.of(context).push(
-            //       MaterialPageRoute(
-            //         builder: (context) => const RealtimeDetectionScreen(),
-            //       ),
-            //     );
-            //   },
-            //   icon: const Icon(Icons.videocam),
-            //   label: const Text('Real-time Detection'),
-            //   style: ElevatedButton.styleFrom(
-            //     minimumSize: const Size(double.infinity, 48),
-            //     backgroundColor: Theme.of(context).colorScheme.primary,
-            //     foregroundColor: Theme.of(context).colorScheme.onPrimary,
-            //   ),
-            // ),
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const RealtimeDetectionScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.videocam),
+              label: const Text('Real-time Detection'),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              ),
+            ),
           ],
         ),
       ),
