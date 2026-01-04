@@ -36,7 +36,7 @@ class _RealtimeDetectionScreenState
 
   // Processing timer for throttling (target: 5 FPS = 200ms interval)
   Timer? _processingTimer;
-  static const int _targetFps = 10;
+  static const int _targetFps = 25;
   static const Duration _processingInterval = Duration(
     milliseconds: 1000 ~/ _targetFps,
   );
