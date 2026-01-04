@@ -77,6 +77,72 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     }
   }
 
+  /// Processes raw JPEG bytes directly for real-time detection (no file I/O).
+  ///
+  /// [jpegBytes] - Raw JPEG image bytes
+  /// [width] - Image width in pixels
+  /// [height] - Image height in pixels
+  Future<List<DetectionResult>> processFromBytes(
+    Uint8List jpegBytes,
+    int width,
+    int height,
+  ) async {
+    final inputImage = InputImage.fromBytes(
+      bytes: jpegBytes,
+      metadata: InputImageMetadata(
+        size: Size(width.toDouble(), height.toDouble()),
+        rotation: InputImageRotation.rotation0deg,
+        format: InputImageFormat.nv21, // JPEG decoded to NV21
+        bytesPerRow: width,
+      ),
+    );
+    final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
+    final results = <DetectionResult>[];
+
+    try {
+      final barcodes = await barcodeScanner.processImage(inputImage);
+
+      if (barcodes.isEmpty) {
+        return [
+          DetectionResult(message: 'No QR Code found.', algorithmName: name),
+        ];
+      }
+
+      // Decode JPEG bytes to cv.Mat
+      final mat = cv.imdecode(jpegBytes, cv.IMREAD_COLOR);
+      if (mat.isEmpty) {
+        return [
+          DetectionResult(
+            message: 'Failed to decode image bytes.',
+            algorithmName: name,
+          ),
+        ];
+      }
+
+      try {
+        for (final qr in barcodes) {
+          final corners = qr.cornerPoints;
+          if (corners.length != 4) continue;
+
+          final qrCorners = corners
+              .map((p) => Offset(p.x.toDouble(), p.y.toDouble()))
+              .toList();
+
+          final result = _processSingleCone(mat, qr.displayValue, qrCorners);
+          results.add(result);
+        }
+        return results;
+      } finally {
+        mat.dispose();
+      }
+    } catch (e) {
+      debugPrint("Algorithm Error (bytes): $e");
+      return [DetectionResult(message: 'Error: $e', algorithmName: name)];
+    } finally {
+      barcodeScanner.close();
+    }
+  }
+
   DetectionResult _processSingleCone(
     cv.Mat fullImage,
     String? qrValue,

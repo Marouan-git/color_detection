@@ -36,9 +36,11 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
   double _processingProgress = 0.0;
   String _processingStatus = '';
 
-  // Detection results per frame (keyed by second)
+  static const int _analysisFps = 2; // Process 2 frames per second
+
+  // Detection results per frame (keyed by milliseconds)
   final Map<int, List<DetectionResult>> _frameResults = {};
-  int _totalSeconds = 0;
+  int _videoDurationMs = 0;
 
   // Aggregated unique product results (for display)
   final Map<String, DetectionResult> _productResults = {};
@@ -46,8 +48,8 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
   // Size of frames used for detection (for overlay scaling)
   Size? _frameSize;
 
-  // Current second for overlay sync
-  int _currentSecond = 0;
+  // Current position for overlay sync
+  int _currentPositionMs = 0;
 
   @override
   void dispose() {
@@ -100,7 +102,7 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
         throw Exception('Could not determine video duration');
       }
 
-      _totalSeconds = duration.inSeconds;
+      _videoDurationMs = duration.inMilliseconds;
       // Store frame size for overlay (video's native resolution)
       _frameSize = videoSize;
 
@@ -108,16 +110,20 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
         _processingStatus = 'Extracting and analyzing frames...';
       });
 
-      // Extract and process one frame per second
-      for (int second = 0; second < _totalSeconds; second++) {
-        // Extract thumbnail at this timestamp (use video's native height for accuracy)
+      // Extract and process frames at the defined FPS
+      final int intervalMs = (1000 / _analysisFps).round();
+      int processedCount = 0;
+      final int totalFramesToProcess = (_videoDurationMs / intervalMs).ceil();
+
+      for (int timeMs = 0; timeMs < _videoDurationMs; timeMs += intervalMs) {
+        // Extract thumbnail at this timestamp
         final thumbnailPath = await VideoThumbnail.thumbnailFile(
           video: _videoFile!.path,
           thumbnailPath: tempDir.path,
           imageFormat: ImageFormat.JPEG,
           maxHeight: _videoController!.value.size.height.toInt(),
           quality: 95,
-          timeMs: second * 1000, // Convert to milliseconds
+          timeMs: timeMs,
         );
 
         if (thumbnailPath != null) {
@@ -126,8 +132,8 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
           // Run detection algorithm
           final results = await _algorithm.process(frameFile);
 
-          // Store results for this second
-          _frameResults[second] = results;
+          // Store results for this timestamp
+          _frameResults[timeMs] = results;
 
           // Aggregate unique product results (latest wins)
           for (final result in results) {
@@ -144,10 +150,13 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
           } catch (_) {}
         }
 
+        processedCount++;
+
         // Update progress
         setState(() {
-          _processingProgress = (second + 1) / _totalSeconds;
-          _processingStatus = 'Analyzing second ${second + 1} / $_totalSeconds';
+          _processingProgress = processedCount / totalFramesToProcess;
+          _processingStatus =
+              'Analyzing frame $processedCount / $totalFramesToProcess';
         });
       }
 
@@ -189,33 +198,47 @@ class _VideoAnalysisScreenState extends ConsumerState<VideoAnalysisScreen> {
   void _onVideoPositionChanged() {
     if (_videoController == null || !_isVideoInitialized) return;
 
-    final position = _videoController!.value.position;
-    final second = position.inSeconds;
+    final position = _videoController!.value.position.inMilliseconds;
 
-    if (second != _currentSecond) {
+    // Only update state if we crossed into a new frame interval window
+    // This optimization prevents excessive rebuilds
+    final int intervalMs = (1000 / _analysisFps).round();
+    final int currentFrameTime = (position / intervalMs).floor() * intervalMs;
+
+    if (currentFrameTime != _currentPositionMs) {
       setState(() {
-        _currentSecond = second;
+        _currentPositionMs = currentFrameTime;
       });
     }
   }
 
-  /// Get results for current second (or nearest processed second)
+  /// Get results for current timestamp (or nearest processed timestamp)
   List<DetectionResult> _getCurrentFrameResults() {
     if (_frameResults.isEmpty) return [];
 
-    // Find the nearest processed second
-    final processedSeconds = _frameResults.keys.toList()..sort();
-    int nearestSecond = processedSeconds.first;
+    // Keys are sorted if inserted in order, but let's be safe or just find nearest
+    // Since we key by specific intervals, we can try to look up exact or nearest match
 
-    for (final s in processedSeconds) {
-      if (s <= _currentSecond) {
-        nearestSecond = s;
-      } else {
-        break;
-      }
+    // Direct lookup for best performance if we synced _currentPositionMs correctly
+    if (_frameResults.containsKey(_currentPositionMs)) {
+      return _frameResults[_currentPositionMs]!;
     }
 
-    return _frameResults[nearestSecond] ?? [];
+    // Fallback: find nearest if exact match missing (e.g. at end of video)
+    int closestTime = _frameResults.keys.first;
+    int minDiff = (_currentPositionMs - closestTime).abs();
+
+    for (final time in _frameResults.keys) {
+      final diff = (_currentPositionMs - time).abs();
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestTime = time;
+      }
+      // Optimization: if we moved past current position significantly, break?
+      // But keys might not be sorted in map iteration.
+    }
+
+    return _frameResults[closestTime] ?? [];
   }
 
   /// Update product status in database

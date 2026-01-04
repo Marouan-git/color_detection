@@ -7,6 +7,7 @@ import 'package:color_detection_app/features/detection/presentation/widgets/dete
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
 import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
+import 'package:color_detection_app/features/detection/presentation/realtime_detection_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/video_analysis_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -172,6 +173,30 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
               label: const Text('Upload Video'),
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 48),
+              ),
+            ),
+          ),
+
+          // Real-time Detection Button
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const RealtimeDetectionScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.videocam),
+              label: const Text('Real-time Detection'),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
               ),
             ),
           ),
