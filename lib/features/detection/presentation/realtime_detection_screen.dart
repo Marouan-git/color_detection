@@ -34,9 +34,9 @@ class _RealtimeDetectionScreenState
   // Aggregated products detected in this session
   final Map<String, DetectionResult> _detectedProducts = {};
 
-  // Processing timer for throttling (target: 5 FPS = 200ms interval)
+  // Processing timer for throttling (target: 20 FPS = 50ms interval)
   Timer? _processingTimer;
-  static const int _targetFps = 25;
+  static const int _targetFps = 20;
   static const Duration _processingInterval = Duration(
     milliseconds: 1000 ~/ _targetFps,
   );
