@@ -146,6 +146,86 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     }
   }
 
+  /// Processes raw BGRA pixel data directly for iOS (no JPEG compression).
+  /// This provides better accuracy than JPEG as there's no lossy compression.
+  ///
+  /// [bgraBytes] - Raw BGRA pixel data (4 bytes per pixel, already stride-stripped)
+  /// [width] - Image width in pixels
+  /// [height] - Image height in pixels
+  Future<List<DetectionResult>> processFromBgra(
+    Uint8List bgraBytes,
+    int width,
+    int height,
+  ) async {
+    // Create InputImage for ML Kit barcode scanning
+    // ML Kit on iOS supports BGRA8888 format directly
+    final inputImage = InputImage.fromBytes(
+      bytes: bgraBytes,
+      metadata: InputImageMetadata(
+        size: Size(width.toDouble(), height.toDouble()),
+        rotation: InputImageRotation.rotation0deg,
+        format: InputImageFormat.bgra8888,
+        bytesPerRow: width * 4, // 4 bytes per pixel for BGRA
+      ),
+    );
+    final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
+    final results = <DetectionResult>[];
+
+    try {
+      final barcodes = await barcodeScanner.processImage(inputImage);
+
+      if (barcodes.isEmpty) {
+        return [
+          DetectionResult(message: 'No QR Code found.', algorithmName: name),
+        ];
+      }
+
+      // Convert BGRA to BGR for OpenCV (OpenCV uses BGR format)
+      // Remove alpha channel: BGRA -> BGR
+      final bgrBytes = Uint8List(width * height * 3);
+      for (int i = 0; i < width * height; i++) {
+        final bgraOffset = i * 4;
+        final bgrOffset = i * 3;
+        bgrBytes[bgrOffset] = bgraBytes[bgraOffset]; // B
+        bgrBytes[bgrOffset + 1] = bgraBytes[bgraOffset + 1]; // G
+        bgrBytes[bgrOffset + 2] = bgraBytes[bgraOffset + 2]; // R
+      }
+
+      // Create OpenCV Mat from BGR bytes
+      final mat = cv.Mat.fromList(height, width, cv.MatType.CV_8UC3, bgrBytes);
+      if (mat.isEmpty) {
+        return [
+          DetectionResult(
+            message: 'Failed to create Mat from BGRA bytes.',
+            algorithmName: name,
+          ),
+        ];
+      }
+
+      try {
+        for (final qr in barcodes) {
+          final corners = qr.cornerPoints;
+          if (corners.length != 4) continue;
+
+          final qrCorners = corners
+              .map((p) => Offset(p.x.toDouble(), p.y.toDouble()))
+              .toList();
+
+          final result = _processSingleCone(mat, qr.displayValue, qrCorners);
+          results.add(result);
+        }
+        return results;
+      } finally {
+        mat.dispose();
+      }
+    } catch (e) {
+      debugPrint("Algorithm Error (BGRA): $e");
+      return [DetectionResult(message: 'Error: $e', algorithmName: name)];
+    } finally {
+      barcodeScanner.close();
+    }
+  }
+
   DetectionResult _processSingleCone(
     cv.Mat fullImage,
     String? qrValue,

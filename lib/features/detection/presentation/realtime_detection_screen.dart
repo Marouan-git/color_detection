@@ -10,7 +10,6 @@ import 'package:color_detection_app/features/product_management/data/product_rep
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:image/image.dart' as img;
 
 /// Real-time camera detection screen with live overlays.
 class RealtimeDetectionScreen extends ConsumerStatefulWidget {
@@ -195,37 +194,34 @@ class _RealtimeDetectionScreenState
     _isDetecting = true;
 
     try {
-      File frameFile;
+      List<DetectionResult> results;
       Size imageSize;
 
       if (_isIOS) {
-        // iOS: Convert the latest camera image to JPEG
+        // iOS: Process BGRA bytes directly (no JPEG compression)
         final cameraImage = _latestCameraImage;
         if (cameraImage == null || _isDisposed) {
           _isDetecting = false;
           return;
         }
 
-        final jpegBytes = _convertCameraImageToJpeg(cameraImage);
-        if (jpegBytes == null || _isDisposed) {
+        // Strip stride padding and get raw BGRA bytes
+        final bgraBytes = _extractBgraBytes(cameraImage);
+        if (bgraBytes == null || _isDisposed) {
           _isDetecting = false;
           return;
         }
 
-        // Save to temp file
-        frameFile = File(_tempFramePath!);
-        await frameFile.writeAsBytes(jpegBytes);
+        final width = cameraImage.width;
+        final height = cameraImage.height;
+        imageSize = Size(width.toDouble(), height.toDouble());
 
-        // Get dimensions from the decoded JPEG
-        final decodedImage = await decodeImageFromList(jpegBytes);
-        imageSize = Size(
-          decodedImage.width.toDouble(),
-          decodedImage.height.toDouble(),
-        );
+        // Process directly using BGRA bytes (no JPEG compression!)
+        results = await _algorithm.processFromBgra(bgraBytes, width, height);
       } else {
         // Android: Use takePicture (original working approach)
         final XFile imageFile = await _controller!.takePicture();
-        frameFile = File(imageFile.path);
+        final frameFile = File(imageFile.path);
 
         // Get actual image dimensions for overlay scaling
         final imageBytes = await frameFile.readAsBytes();
@@ -234,18 +230,16 @@ class _RealtimeDetectionScreenState
           decodedImage.width.toDouble(),
           decodedImage.height.toDouble(),
         );
-      }
 
-      if (_isDisposed) {
-        _isDetecting = false;
-        return;
-      }
+        if (_isDisposed) {
+          _isDetecting = false;
+          return;
+        }
 
-      // Process the frame
-      final results = await _algorithm.process(frameFile);
+        // Process the frame
+        results = await _algorithm.process(frameFile);
 
-      // Clean up captured file (only for Android, iOS reuses temp file)
-      if (!_isIOS) {
+        // Clean up captured file
         try {
           frameFile.deleteSync();
         } catch (_) {}
@@ -274,9 +268,9 @@ class _RealtimeDetectionScreenState
     }
   }
 
-  /// Convert CameraImage to JPEG bytes (for iOS BGRA8888 format)
-  /// Handles bytesPerRow stride padding that iOS adds to pixel buffers
-  Uint8List? _convertCameraImageToJpeg(CameraImage cameraImage) {
+  /// Extract raw BGRA bytes from CameraImage, handling stride padding.
+  /// Returns null if the format is unsupported.
+  Uint8List? _extractBgraBytes(CameraImage cameraImage) {
     try {
       if (cameraImage.format.group != ImageFormatGroup.bgra8888) {
         debugPrint('Unsupported camera format: ${cameraImage.format.group}');
@@ -288,22 +282,13 @@ class _RealtimeDetectionScreenState
       final width = cameraImage.width;
       final height = cameraImage.height;
       final bytesPerPixel = 4; // BGRA = 4 bytes per pixel
-
-      // Check if there's stride padding
       final expectedBytesPerRow = width * bytesPerPixel;
 
-      img.Image image;
-
       if (bytesPerRow == expectedBytesPerRow) {
-        // No padding, use bytes directly
-        image = img.Image.fromBytes(
-          width: width,
-          height: height,
-          bytes: plane.bytes.buffer,
-          order: img.ChannelOrder.bgra,
-        );
+        // No padding, return bytes directly
+        return Uint8List.fromList(plane.bytes);
       } else {
-        // Has stride padding, need to remove it row by row
+        // Has stride padding, need to strip it row by row
         final strippedBytes = Uint8List(width * height * bytesPerPixel);
         for (int y = 0; y < height; y++) {
           final srcOffset = y * bytesPerRow;
@@ -312,18 +297,10 @@ class _RealtimeDetectionScreenState
             strippedBytes[dstOffset + x] = plane.bytes[srcOffset + x];
           }
         }
-        image = img.Image.fromBytes(
-          width: width,
-          height: height,
-          bytes: strippedBytes.buffer,
-          order: img.ChannelOrder.bgra,
-        );
+        return strippedBytes;
       }
-
-      // Encode to JPEG
-      return Uint8List.fromList(img.encodeJpg(image, quality: 85));
     } catch (e) {
-      debugPrint('Error converting camera image: $e');
+      debugPrint('Error extracting BGRA bytes: $e');
       return null;
     }
   }
