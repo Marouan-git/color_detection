@@ -6,6 +6,7 @@ import 'package:color_detection_app/features/detection/domain/detection_result.d
 import 'package:color_detection_app/features/detection/presentation/widgets/detection_visualizer.dart';
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
+import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/realtime_detection_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/video_analysis_screen.dart';
 import 'package:flutter/material.dart';
@@ -21,7 +22,7 @@ class AnalysisScreen extends ConsumerStatefulWidget {
 
 class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
   File? _selectedImage;
-  Size? _imageSize; // Add this
+  Size? _imageSize;
   List<DetectionResult> _results = [];
   bool _isProcessing = false;
 
@@ -79,23 +80,35 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
     }
   }
 
-  /// Opens the camera using image_picker and processes the captured image
-  /// This is more reliable on iOS than using the camera plugin directly
+  /// Opens the camera and processes the captured image
+  /// Uses CameraCaptureScreen on Android, image_picker on iOS
   Future<void> _captureFromCamera() async {
-    try {
-      final XFile? capturedFile = await _picker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.rear,
+    if (Platform.isIOS) {
+      // iOS: Use image_picker which is more reliable
+      try {
+        final XFile? capturedFile = await _picker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+        );
+
+        if (capturedFile != null) {
+          await _setImageAndProcess(File(capturedFile.path));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error capturing image: $e')));
+        }
+      }
+    } else {
+      // Android: Use custom camera screen
+      final File? capturedFile = await Navigator.of(context).push<File>(
+        MaterialPageRoute(builder: (context) => const CameraCaptureScreen()),
       );
 
       if (capturedFile != null) {
-        await _setImageAndProcess(File(capturedFile.path));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error capturing image: $e')));
+        await _setImageAndProcess(capturedFile);
       }
     }
   }
@@ -263,7 +276,7 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         if (_results.isNotEmpty)
           Container(
             color: Colors.black87,
-            height: 150, // Fixed height for the list
+            height: 150,
             width: double.infinity,
             child: ListView.separated(
               padding: const EdgeInsets.all(16.0),
