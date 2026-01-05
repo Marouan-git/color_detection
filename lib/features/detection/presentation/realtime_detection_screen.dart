@@ -27,6 +27,7 @@ class _RealtimeDetectionScreenState
   CameraController? _controller;
   bool _isInitialized = false;
   String? _errorMessage;
+  bool _isDisposed = false; // Track disposal state to prevent crash
 
   // Detection
   final ConeSearchAlgorithm _algorithm = ConeSearchAlgorithm();
@@ -36,9 +37,9 @@ class _RealtimeDetectionScreenState
   // Aggregated products detected in this session
   final Map<String, DetectionResult> _detectedProducts = {};
 
-  // Processing timer for throttling (target: 20 FPS = 50ms interval)
+  // Processing timer for throttling (target: 10 FPS = 100ms interval)
   Timer? _processingTimer;
-  static const int _targetFps = 20;
+  static const int _targetFps = 10;
   static const Duration _processingInterval = Duration(
     milliseconds: 1000 ~/ _targetFps,
   );
@@ -54,6 +55,7 @@ class _RealtimeDetectionScreenState
 
   // Latest camera image for iOS processing
   CameraImage? _latestCameraImage;
+  bool _isStreamActive = false;
 
   @override
   void initState() {
@@ -64,8 +66,9 @@ class _RealtimeDetectionScreenState
 
   @override
   void dispose() {
+    _isDisposed = true; // Mark as disposed FIRST to prevent crash
     WidgetsBinding.instance.removeObserver(this);
-    _processingTimer?.cancel();
+    _stopProcessing();
     _stopImageStream();
     _controller?.dispose();
     // Clean up temp file
@@ -79,6 +82,7 @@ class _RealtimeDetectionScreenState
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_isDisposed) return;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
 
@@ -92,10 +96,12 @@ class _RealtimeDetectionScreenState
   }
 
   Future<void> _initializeCamera() async {
+    if (_isDisposed) return;
+
     try {
       final cameras = await availableCameras();
       if (cameras.isEmpty) {
-        setState(() => _errorMessage = 'No cameras available');
+        if (mounted) setState(() => _errorMessage = 'No cameras available');
         return;
       }
 
@@ -104,14 +110,14 @@ class _RealtimeDetectionScreenState
         orElse: () => cameras.first,
       );
 
-      // Use BGRA8888 on iOS for easier conversion, YUV420 on Android
+      // iOS: Use BGRA8888 for image stream, Android: Use JPEG for takePicture
       _controller = CameraController(
         backCamera,
-        ResolutionPreset.medium, // Use medium for better performance
+        ResolutionPreset.high, // Use high for better QR detection
         enableAudio: false,
         imageFormatGroup: _isIOS
             ? ImageFormatGroup.bgra8888
-            : ImageFormatGroup.yuv420,
+            : ImageFormatGroup.jpeg,
       );
 
       await _controller!.initialize();
@@ -120,38 +126,56 @@ class _RealtimeDetectionScreenState
       final tempDir = await getTemporaryDirectory();
       _tempFramePath = '${tempDir.path}/realtime_frame.jpg';
 
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() => _isInitialized = true);
 
         if (_isIOS) {
-          // iOS: Use image stream
           _startImageStream();
         }
 
         _startProcessing();
       }
     } catch (e) {
-      setState(() => _errorMessage = 'Camera init failed: $e');
+      if (mounted && !_isDisposed) {
+        setState(() => _errorMessage = 'Camera init failed: $e');
+      }
     }
   }
 
   void _startImageStream() {
-    _controller?.startImageStream((CameraImage image) {
-      _latestCameraImage = image;
-    });
+    if (_isDisposed || _controller == null || _isStreamActive) return;
+
+    try {
+      _controller!.startImageStream((CameraImage image) {
+        if (!_isDisposed) {
+          _latestCameraImage = image;
+        }
+      });
+      _isStreamActive = true;
+    } catch (e) {
+      debugPrint('Error starting image stream: $e');
+    }
   }
 
   void _stopImageStream() {
+    if (!_isStreamActive) return;
+
     try {
       _controller?.stopImageStream();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('Error stopping image stream: $e');
+    }
+    _isStreamActive = false;
     _latestCameraImage = null;
   }
 
   void _startProcessing() {
+    if (_isDisposed) return;
     _processingTimer?.cancel();
     _processingTimer = Timer.periodic(_processingInterval, (_) {
-      _captureAndProcess();
+      if (!_isDisposed) {
+        _captureAndProcess();
+      }
     });
   }
 
@@ -161,7 +185,8 @@ class _RealtimeDetectionScreenState
   }
 
   Future<void> _captureAndProcess() async {
-    if (_isDetecting ||
+    if (_isDisposed ||
+        _isDetecting ||
         _controller == null ||
         !_controller!.value.isInitialized) {
       return;
@@ -170,19 +195,19 @@ class _RealtimeDetectionScreenState
     _isDetecting = true;
 
     try {
-      File? frameFile;
-      Size? imageSize;
+      File frameFile;
+      Size imageSize;
 
       if (_isIOS) {
         // iOS: Convert the latest camera image to JPEG
         final cameraImage = _latestCameraImage;
-        if (cameraImage == null) {
+        if (cameraImage == null || _isDisposed) {
           _isDetecting = false;
           return;
         }
 
-        final jpegBytes = await _convertCameraImageToJpeg(cameraImage);
-        if (jpegBytes == null) {
+        final jpegBytes = _convertCameraImageToJpeg(cameraImage);
+        if (jpegBytes == null || _isDisposed) {
           _isDetecting = false;
           return;
         }
@@ -191,12 +216,14 @@ class _RealtimeDetectionScreenState
         frameFile = File(_tempFramePath!);
         await frameFile.writeAsBytes(jpegBytes);
 
+        // Get dimensions from the decoded JPEG
+        final decodedImage = await decodeImageFromList(jpegBytes);
         imageSize = Size(
-          cameraImage.width.toDouble(),
-          cameraImage.height.toDouble(),
+          decodedImage.width.toDouble(),
+          decodedImage.height.toDouble(),
         );
       } else {
-        // Android: Use takePicture
+        // Android: Use takePicture (original working approach)
         final XFile imageFile = await _controller!.takePicture();
         frameFile = File(imageFile.path);
 
@@ -209,6 +236,11 @@ class _RealtimeDetectionScreenState
         );
       }
 
+      if (_isDisposed) {
+        _isDetecting = false;
+        return;
+      }
+
       // Process the frame
       final results = await _algorithm.process(frameFile);
 
@@ -219,7 +251,7 @@ class _RealtimeDetectionScreenState
         } catch (_) {}
       }
 
-      if (mounted) {
+      if (mounted && !_isDisposed) {
         setState(() {
           _currentResults = results;
           _capturedImageSize = imageSize;
@@ -234,34 +266,59 @@ class _RealtimeDetectionScreenState
         }
       }
     } catch (e) {
-      debugPrint('Real-time detection error: $e');
+      if (!_isDisposed) {
+        debugPrint('Real-time detection error: $e');
+      }
     } finally {
       _isDetecting = false;
     }
   }
 
-  /// Convert CameraImage to JPEG bytes
-  Future<Uint8List?> _convertCameraImageToJpeg(CameraImage cameraImage) async {
+  /// Convert CameraImage to JPEG bytes (for iOS BGRA8888 format)
+  /// Handles bytesPerRow stride padding that iOS adds to pixel buffers
+  Uint8List? _convertCameraImageToJpeg(CameraImage cameraImage) {
     try {
-      img.Image? image;
-
-      if (cameraImage.format.group == ImageFormatGroup.bgra8888) {
-        // iOS BGRA8888 format
-        image = img.Image.fromBytes(
-          width: cameraImage.width,
-          height: cameraImage.height,
-          bytes: cameraImage.planes[0].bytes.buffer,
-          order: img.ChannelOrder.bgra,
-        );
-      } else if (cameraImage.format.group == ImageFormatGroup.yuv420) {
-        // Android YUV420 format - convert to RGB
-        image = _convertYUV420ToImage(cameraImage);
-      } else {
+      if (cameraImage.format.group != ImageFormatGroup.bgra8888) {
         debugPrint('Unsupported camera format: ${cameraImage.format.group}');
         return null;
       }
 
-      if (image == null) return null;
+      final plane = cameraImage.planes[0];
+      final bytesPerRow = plane.bytesPerRow;
+      final width = cameraImage.width;
+      final height = cameraImage.height;
+      final bytesPerPixel = 4; // BGRA = 4 bytes per pixel
+
+      // Check if there's stride padding
+      final expectedBytesPerRow = width * bytesPerPixel;
+
+      img.Image image;
+
+      if (bytesPerRow == expectedBytesPerRow) {
+        // No padding, use bytes directly
+        image = img.Image.fromBytes(
+          width: width,
+          height: height,
+          bytes: plane.bytes.buffer,
+          order: img.ChannelOrder.bgra,
+        );
+      } else {
+        // Has stride padding, need to remove it row by row
+        final strippedBytes = Uint8List(width * height * bytesPerPixel);
+        for (int y = 0; y < height; y++) {
+          final srcOffset = y * bytesPerRow;
+          final dstOffset = y * expectedBytesPerRow;
+          for (int x = 0; x < expectedBytesPerRow; x++) {
+            strippedBytes[dstOffset + x] = plane.bytes[srcOffset + x];
+          }
+        }
+        image = img.Image.fromBytes(
+          width: width,
+          height: height,
+          bytes: strippedBytes.buffer,
+          order: img.ChannelOrder.bgra,
+        );
+      }
 
       // Encode to JPEG
       return Uint8List.fromList(img.encodeJpg(image, quality: 85));
@@ -271,47 +328,8 @@ class _RealtimeDetectionScreenState
     }
   }
 
-  /// Convert YUV420 camera image to RGB Image (for Android)
-  img.Image? _convertYUV420ToImage(CameraImage cameraImage) {
-    try {
-      final width = cameraImage.width;
-      final height = cameraImage.height;
-      final yPlane = cameraImage.planes[0];
-      final uPlane = cameraImage.planes[1];
-      final vPlane = cameraImage.planes[2];
-
-      final image = img.Image(width: width, height: height);
-
-      for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-          final yIndex = y * yPlane.bytesPerRow + x;
-          final uvIndex = (y ~/ 2) * uPlane.bytesPerRow + (x ~/ 2);
-
-          final yValue = yPlane.bytes[yIndex];
-          final uValue = uPlane.bytes[uvIndex];
-          final vValue = vPlane.bytes[uvIndex];
-
-          // YUV to RGB conversion
-          int r = (yValue + 1.402 * (vValue - 128)).round().clamp(0, 255);
-          int g =
-              (yValue - 0.344136 * (uValue - 128) - 0.714136 * (vValue - 128))
-                  .round()
-                  .clamp(0, 255);
-          int b = (yValue + 1.772 * (uValue - 128)).round().clamp(0, 255);
-
-          image.setPixelRgba(x, y, r, g, b, 255);
-        }
-      }
-
-      return image;
-    } catch (e) {
-      debugPrint('YUV conversion error: $e');
-      return null;
-    }
-  }
-
   Future<void> _updateProductStatus(DetectionResult result) async {
-    if (result.status == null || result.qrCode == null) return;
+    if (_isDisposed || result.status == null || result.qrCode == null) return;
 
     try {
       final repo = ref.read(productRepositoryProvider);

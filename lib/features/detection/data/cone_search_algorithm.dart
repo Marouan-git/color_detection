@@ -174,7 +174,7 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     // NEW: Distance Constraints
     // Min: 90% of QR height (avoids detecting the QR itself or close reflections)
     // Max: 350% of QR height (avoids detecting lights far in the background)
-    final minLedDist = qrHeight * 0.9;
+    final minLedDist = qrHeight * 2.0;
     final maxLedDist = qrHeight * 3.5;
 
     // --- 1. Extract ROI ---
