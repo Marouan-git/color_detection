@@ -12,6 +12,8 @@ import 'package:color_detection_app/features/detection/presentation/video_analys
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 
 class AnalysisScreen extends ConsumerStatefulWidget {
   const AnalysisScreen({super.key});
@@ -92,7 +94,12 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         );
 
         if (capturedFile != null) {
-          await _setImageAndProcess(File(capturedFile.path));
+          // iOS images may have EXIF orientation that OpenCV doesn't handle
+          // Preprocess to apply EXIF rotation and save as corrected file
+          final File processedFile = await _preprocessIosImage(
+            File(capturedFile.path),
+          );
+          await _setImageAndProcess(processedFile);
         }
       } catch (e) {
         if (mounted) {
@@ -110,6 +117,38 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
       if (capturedFile != null) {
         await _setImageAndProcess(capturedFile);
       }
+    }
+  }
+
+  /// Preprocesses iOS images to apply EXIF orientation correction.
+  /// OpenCV's imdecode doesn't respect EXIF orientation, so we need to
+  /// bake the rotation into the pixel data.
+  Future<File> _preprocessIosImage(File originalFile) async {
+    try {
+      final bytes = await originalFile.readAsBytes();
+
+      // Decode image with EXIF orientation applied
+      final image = img.decodeImage(bytes);
+      if (image == null) {
+        debugPrint('Failed to decode image for preprocessing');
+        return originalFile;
+      }
+
+      // The decodeImage function already applies EXIF orientation!
+      // Re-encode to JPEG to bake in the correct orientation
+      final correctedBytes = img.encodeJpg(image, quality: 95);
+
+      // Save to temp file
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File(
+        '${tempDir.path}/ios_captured_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await tempFile.writeAsBytes(correctedBytes);
+
+      return tempFile;
+    } catch (e) {
+      debugPrint('Error preprocessing iOS image: $e');
+      return originalFile;
     }
   }
 
