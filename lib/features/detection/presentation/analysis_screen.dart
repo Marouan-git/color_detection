@@ -6,6 +6,7 @@ import 'package:color_detection_app/features/detection/domain/detection_result.d
 import 'package:color_detection_app/features/detection/presentation/widgets/detection_visualizer.dart';
 import 'package:color_detection_app/features/product_management/data/product_repository.dart';
 
+import 'package:color_detection_app/features/detection/presentation/calibration_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/camera_capture_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/realtime_detection_screen.dart';
 import 'package:color_detection_app/features/detection/presentation/video_analysis_screen.dart';
@@ -268,6 +269,23 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
                 minimumSize: const Size(double.infinity, 48),
                 backgroundColor: Theme.of(context).colorScheme.primary,
                 foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              ),
+            ),
+            const SizedBox(height: 64),
+
+            // Calibration Button
+            OutlinedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const CalibrationScreen(),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.tune),
+              label: const Text('Calibration'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 48),
               ),
             ),
           ],

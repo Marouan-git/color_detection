@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
+import 'package:color_detection_app/features/detection/data/calibration_repository.dart';
+import 'package:color_detection_app/features/detection/domain/cone_calibration_settings.dart';
 import 'package:color_detection_app/features/detection/domain/detection_algorithm.dart';
 import 'package:color_detection_app/features/detection/domain/detection_result.dart';
 import 'package:color_detection_app/features/product_management/domain/product.dart';
@@ -28,8 +30,25 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       20.0; // Lowered slightly to catch washed-out LEDs
   final double strictCircularity = 0.35;
 
+  // Calibration settings (loaded at runtime)
+  ConeCalibrationSettings _settings = const ConeCalibrationSettings();
+
+  /// Loads calibration settings from repository
+  Future<void> _loadCalibrationSettings() async {
+    try {
+      final repo = CalibrationRepository();
+      _settings = await repo.getSettings();
+    } catch (e) {
+      debugPrint('Failed to load calibration settings: $e');
+      _settings = const ConeCalibrationSettings();
+    }
+  }
+
   @override
   Future<List<DetectionResult>> process(File image) async {
+    // Load calibration settings before processing
+    await _loadCalibrationSettings();
+
     final inputImage = InputImage.fromFile(image);
     final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
     final results = <DetectionResult>[];
@@ -90,6 +109,9 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     int width,
     int height,
   ) async {
+    // Load calibration settings before processing
+    await _loadCalibrationSettings();
+
     final inputImage = InputImage.fromBytes(
       bytes: jpegBytes,
       metadata: InputImageMetadata(
@@ -170,6 +192,9 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     );
     final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
     final results = <DetectionResult>[];
+
+    // Load calibration settings before processing
+    await _loadCalibrationSettings();
 
     try {
       final barcodes = await barcodeScanner.processImage(inputImage);
@@ -465,13 +490,16 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     }
   }
 
-  // --- 0. Geometry & Cone (Revised with Homography) ---
-  // --- 0. Geometry & Cone (Revised with 1000x Scale Fix) ---
+  // --- 0. Geometry & Cone (Revised with Homography + Calibration) ---
   List<Offset> _calculateCone(List<Offset> corners) {
     if (corners.length != 4) return [];
 
     // CONSTANT: Scale ideal world up by 1000 to preserve precision with Integers
     const double scale = 1000.0;
+
+    // Apply calibration settings
+    final heightMultiplier = _settings.heightMultiplier;
+    final rotationAngle = _settings.rotationAngle;
 
     // 1. Destination: Actual QR corners (Screen Pixels)
     // We cast to Int (VecPoint) as required by the library.
@@ -499,24 +527,35 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       // Maps "1000x World" -> "Screen Pixels"
       M = cv.getPerspectiveTransform(srcVec, destVec);
 
-      // 4. Define Cone in "1000x World"
+      // 4. Define Cone in "1000x World" (before rotation)
       // We multiply all our ratio constants by `scale`
-      const double startY = -0.2 * scale; // 20% gap
-      const double endY = (-0.2 - 3.9) * scale; // 390% length
+      const double gapRatio = -0.2; // 20% gap
+      final double endRatio =
+          -0.2 - (3.9 * heightMultiplier); // Height with calibration
       const double baseHalfW = (1.5 / 2.0) * scale;
       const double topHalfW = (2.5 / 2.0) * scale;
       const double centerX = 0.5 * scale;
+      const double centerY = 0.5 * scale; // QR center for rotation
 
-      final idealConePoints = [
-        cv.Point2f(centerX - baseHalfW, startY),
-        cv.Point2f(centerX - topHalfW, endY),
-        cv.Point2f(centerX + topHalfW, endY),
-        cv.Point2f(centerX + baseHalfW, startY),
+      // Cone points relative to center (before rotation)
+      final unrotatedPoints = [
+        cv.Point2f(-baseHalfW, gapRatio * scale - centerY),
+        cv.Point2f(-topHalfW, endRatio * scale - centerY),
+        cv.Point2f(topHalfW, endRatio * scale - centerY),
+        cv.Point2f(baseHalfW, gapRatio * scale - centerY),
       ];
+
+      // Apply rotation around center
+      final radians = rotationAngle * math.pi / 180;
+      final rotatedPoints = unrotatedPoints.map((p) {
+        final rotatedX = p.x * math.cos(radians) - p.y * math.sin(radians);
+        final rotatedY = p.x * math.sin(radians) + p.y * math.cos(radians);
+        return cv.Point2f(centerX + rotatedX, centerY + rotatedY);
+      }).toList();
 
       // 5. Transform
       // Even though M was made with Ints, it works on Floats for the projection.
-      idealConeMat = cv.Mat.fromVec(cv.VecPoint2f.fromList(idealConePoints));
+      idealConeMat = cv.Mat.fromVec(cv.VecPoint2f.fromList(rotatedPoints));
       imageConeMat = cv.perspectiveTransform(idealConeMat, M);
 
       // 6. Extract results (Screen Pixels)
