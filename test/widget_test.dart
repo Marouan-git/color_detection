@@ -14,12 +14,12 @@ void main() {
     expect(find.text('Product Management'), findsOneWidget);
 
     // Verify Inputs
-    expect(find.text('Product ID'), findsOneWidget);
-    expect(find.text('Supplier'), findsOneWidget);
+    expect(find.text('Stock Code'), findsOneWidget);
+    expect(find.text('Default Supplier'), findsOneWidget);
     expect(
       find.byType(TextFormField),
       findsNWidgets(2),
-    ); // Product ID and Supplier
+    ); // Stock Code and Default Supplier
     expect(
       find.text('Stock Status'),
       findsOneWidget,
@@ -27,7 +27,7 @@ void main() {
 
     // Verify Buttons
     expect(find.text('Generate QR Code'), findsOneWidget);
-    expect(find.text('View Product Dashboard'), findsOneWidget);
+    expect(find.text('Product Dashboard'), findsOneWidget);
     expect(find.text('Analyze Product'), findsOneWidget);
   });
 }

@@ -8,6 +8,7 @@ import '../../../../core/utils/file_saver.dart';
 import 'package:color_detection_app/features/detection/presentation/analysis_screen.dart';
 import '../data/product_repository.dart';
 import '../domain/product.dart';
+import 'order_history_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   final ProductRepository? repository;
@@ -22,6 +23,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Product> _products = [];
   bool _loading = true;
 
+  // Sorting
+  String _sortBy = 'date_newest';
+
+  // Filtering
+  StockStatus? _filterStatus;
+
   @override
   void initState() {
     super.initState();
@@ -32,11 +39,28 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _loadProducts() async {
     setState(() => _loading = true);
     final products = await _repository.getProducts();
+    _sortProducts(products);
     setState(() {
-      _products = products
-        ..sort((a, b) => b.lastUpdated.compareTo(a.lastUpdated));
+      _products = products;
       _loading = false;
     });
+  }
+
+  void _sortProducts(List<Product> products) {
+    switch (_sortBy) {
+      case 'date_newest':
+        products.sort((a, b) => b.lastUpdated.compareTo(a.lastUpdated));
+        break;
+      case 'date_oldest':
+        products.sort((a, b) => a.lastUpdated.compareTo(b.lastUpdated));
+        break;
+      case 'supplier':
+        products.sort((a, b) => a.supplier.compareTo(b.supplier));
+        break;
+      case 'stock_code':
+        products.sort((a, b) => a.stockCode.compareTo(b.stockCode));
+        break;
+    }
   }
 
   Future<void> _deleteProduct(Product product) async {
@@ -45,7 +69,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Delete Product?'),
         content: Text(
-          'Are you sure you want to delete product "${product.id}"?',
+          'Are you sure you want to delete product "${product.stockCode}"?',
         ),
         actions: [
           TextButton(
@@ -71,49 +95,126 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // Future<void> _saveToDownloads(File tempFile, String fileName) async {
-  //   try {
-  //     Directory? downloadsDir;
-  //     if (Platform.isAndroid) {
-  //       // Standard Android Download directory
-  //       downloadsDir = Directory('/storage/emulated/0/Download');
-  //       // Ensure it exists (though it should on standard Android)
-  //       if (!await downloadsDir.exists()) {
-  //         // Fallback if standard path doesn't exist (e.g. some emulators)
-  //         downloadsDir = await getExternalStorageDirectory();
-  //       }
-  //     } else {
-  //       // iOS/Desktop
-  //       downloadsDir = await getApplicationDocumentsDirectory();
-  //     }
+  /// Shows order confirmation dialog with quantity input and editable supplier
+  Future<void> _showOrderDialog(Product product) async {
+    final quantityController = TextEditingController(text: '1');
+    final supplierController = TextEditingController(text: product.supplier);
 
-  //     if (downloadsDir == null) {
-  //       throw Exception('Could not determine download directory');
-  //     }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Create Order'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Product: ${product.stockCode}',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: supplierController,
+              decoration: const InputDecoration(
+                labelText: 'Supplier',
+                border: OutlineInputBorder(),
+                helperText: 'Edit if ordering from a different supplier',
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: quantityController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Quantity',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Confirm Order'),
+          ),
+        ],
+      ),
+    );
 
-  //     final newPath = '${downloadsDir.path}/$fileName';
-  //     final newFile = await tempFile.copy(newPath);
+    if (confirmed == true) {
+      final quantity = int.tryParse(quantityController.text) ?? 1;
+      final supplier = supplierController.text.trim();
 
-  //     if (Platform.isAndroid) {
-  //       // Show specific success for Android direct download
-  //       if (mounted) {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(content: Text('Saved to Downloads: $fileName')),
-  //         );
-  //       }
-  //     } else {
-  //       // Fallback or iOS 'Save to Files'
-  //       final xFile = XFile(newFile.path);
-  //       await Share.shareXFiles([xFile], text: 'Exported $fileName');
-  //     }
-  //   } catch (e) {
-  //     if (mounted) {
-  //       ScaffoldMessenger.of(
-  //         context,
-  //       ).showSnackBar(SnackBar(content: Text('Failed to save file: $e')));
-  //     }
-  //   }
-  // }
+      if (supplier.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Supplier cannot be empty')),
+          );
+        }
+        return;
+      }
+
+      // Check for existing pending orders with the same product and supplier
+      final pendingOrders = await _repository
+          .getPendingOrdersForProductAndSupplier(product.id, supplier);
+
+      if (pendingOrders.isNotEmpty && mounted) {
+        final action = await _showDuplicateOrderDialog(pendingOrders.length);
+        if (action == null || action == 'cancel') return;
+        if (action == 'replace') {
+          // Delete existing pending orders for this supplier
+          for (final order in pendingOrders) {
+            await _repository.deleteOrderRecord(order.id);
+          }
+        }
+        // 'add' action falls through to create the order
+      }
+
+      await _repository.createOrder(product, quantity, supplier: supplier);
+      await _loadProducts();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Order created for ${product.stockCode} (Qty: $quantity) with $supplier',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Shows dialog when duplicate pending order exists for same supplier
+  Future<String?> _showDuplicateOrderDialog(int pendingCount) async {
+    return showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pending Order Exists'),
+        content: Text(
+          'There ${pendingCount == 1 ? 'is' : 'are'} already $pendingCount pending order(s) '
+          'for this supplier. What would you like to do?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'cancel'),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, 'add'),
+            child: const Text('Add Alongside'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, 'replace'),
+            child: const Text('Replace'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _exportCsv() async {
     if (_products.isEmpty) {
@@ -124,12 +225,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
 
     try {
-      final header = 'Product ID,Supplier,Stock Status,Last Updated\n';
+      final header =
+          'Default Supplier,Stock Code,Stock Status,Last Order Date,Quantity Ordered\n';
       final rows = _products
-          .map(
-            (p) =>
-                '${p.id},${p.supplier},${p.stockStatus.label},${p.lastUpdated.toIso8601String()}',
-          )
+          .map((p) {
+            final lastOrder =
+                p.lastOrderDate?.toIso8601String().substring(0, 16) ?? '';
+            return '${p.supplier},${p.stockCode},${p.stockStatus.label},$lastOrder,${p.quantityOrdered ?? ''}';
+          })
           .join('\n');
       final csvContent = '$header$rows';
 
@@ -166,14 +269,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: [
                     pw.BarcodeWidget(
                       barcode: pw.Barcode.qrCode(),
-                      data: product.id,
+                      data: product.stockCode, // Use stockCode for QR
                       width: 100,
                       height: 100,
                     ),
                     pw.SizedBox(height: 4),
                     pw.Text(
-                      product.id,
+                      product.stockCode,
                       style: const pw.TextStyle(fontSize: 10),
+                    ),
+                    pw.Text(
+                      product.supplier,
+                      style: const pw.TextStyle(fontSize: 8),
                     ),
                   ],
                 );
@@ -188,14 +295,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       MaterialPageRoute(
         builder: (context) => PdfPreviewScreen(
           title: 'All_Product_QRs',
-          buildPdf: (format) async {
-            // Rebuild the PDF for the preview to ensure it matches the format if needed,
-            // or just save the one we already built.
-            // Since PdfPreview might request specific formats, best to rely on its callback if we want to be strict,
-            // but for simplicity we'll just save the one we built above or rebuild it here if we want to support dynamic formats.
-            // Actually, let's just use the one we built.
-            return pdf.save();
-          },
+          buildPdf: (format) async => pdf.save(),
         ),
       ),
     );
@@ -222,7 +322,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  StockStatus? _filterStatus;
+  String _formatDate(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')} '
+        '${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -233,33 +336,82 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Product Dashboard'),
+        title: const Text('Dashboard'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.analytics_outlined),
-            tooltip: 'Static Analysis',
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const AnalysisScreen()),
-              );
-              if (mounted) {
-                _loadProducts();
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (value) async {
+              switch (value) {
+                case 'history':
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const OrderHistoryScreen(),
+                    ),
+                  );
+                  break;
+                case 'analysis':
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const AnalysisScreen(),
+                    ),
+                  );
+                  if (mounted) {
+                    _loadProducts();
+                  }
+                  break;
+                case 'csv':
+                  _exportCsv();
+                  break;
+                case 'print':
+                  _printAllQrs();
+                  break;
               }
             },
+            itemBuilder: (context) => [
+              const PopupMenuItem(
+                value: 'history',
+                child: Row(
+                  children: [
+                    Icon(Icons.history),
+                    SizedBox(width: 8),
+                    Text('Order History'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'analysis',
+                child: Row(
+                  children: [
+                    Icon(Icons.analytics_outlined),
+                    SizedBox(width: 8),
+                    Text('Analysis'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'csv',
+                child: Row(
+                  children: [
+                    Icon(Icons.table_view),
+                    SizedBox(width: 8),
+                    Text('Export CSV'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem(
+                value: 'print',
+                child: Row(
+                  children: [
+                    Icon(Icons.print),
+                    SizedBox(width: 8),
+                    Text('Print QRs'),
+                  ],
+                ),
+              ),
+            ],
           ),
-          if (_products.isNotEmpty) ...[
-            IconButton(
-              icon: const Icon(Icons.table_view),
-              onPressed: _exportCsv,
-              tooltip: 'Export to CSV',
-            ),
-            IconButton(
-              icon: const Icon(Icons.print),
-              onPressed: _printAllQrs,
-              tooltip: 'Print All QRs',
-            ),
-          ],
         ],
       ),
       body: _loading
@@ -269,7 +421,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 // 1. Status Summary
                 if (_products.isNotEmpty) _buildStatusSummary(),
 
-                // 2. Filter & Swipe Hint
+                // 2. Filter & Sort Row
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16.0,
@@ -277,17 +429,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   child: Row(
                     children: [
+                      // Filter dropdown
                       const Icon(Icons.filter_list, size: 20),
                       const SizedBox(width: 8),
                       DropdownButton<StockStatus>(
                         value: _filterStatus,
-                        hint: const Text('Filter by Status'),
-                        underline: Container(), // Remove default underline
-                        icon: const Icon(Icons.arrow_drop_down),
+                        hint: const Text('Filter'),
+                        underline: Container(),
                         items: [
                           const DropdownMenuItem(
                             value: null,
-                            child: Text('All Statuses'),
+                            child: Text('All'),
                           ),
                           ...StockStatus.values.map((status) {
                             return DropdownMenuItem(
@@ -311,17 +463,52 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ],
                         onChanged: (val) => setState(() => _filterStatus = val),
                       ),
-                      const Spacer(),
-                      const Icon(Icons.swipe, size: 16, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      const Text(
-                        'Swipe table',
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
-                          fontSize: 12,
-                        ),
+                      const SizedBox(width: 16),
+
+                      // Sort dropdown
+                      const Icon(Icons.sort, size: 20),
+                      const SizedBox(width: 8),
+                      DropdownButton<String>(
+                        value: _sortBy,
+                        underline: Container(),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'date_newest',
+                            child: Text('Newest'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'date_oldest',
+                            child: Text('Oldest'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'supplier',
+                            child: Text('Supplier'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'stock_code',
+                            child: Text('Stock Code'),
+                          ),
+                        ],
+                        onChanged: (val) {
+                          if (val != null) {
+                            setState(() {
+                              _sortBy = val;
+                              _sortProducts(_products);
+                            });
+                          }
+                        },
                       ),
+                      const Spacer(),
+                      const Icon(Icons.swipe, size: 15, color: Colors.grey),
+                      //const SizedBox(width: 4),
+                      // const Text(
+                      //   'Swipe',
+                      //   style: TextStyle(
+                      //     color: Colors.grey,
+                      //     fontStyle: FontStyle.italic,
+                      //     fontSize: 12,
+                      //   ),
+                      // ),
                     ],
                   ),
                 ),
@@ -329,9 +516,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 // 3. Data Table
                 Expanded(
                   child: displayedProducts.isEmpty
-                      ? const Center(
-                          child: Text('No products found matching filter.'),
-                        )
+                      ? const Center(child: Text('No products found.'))
                       : Scrollbar(
                           controller: _verticalController,
                           thumbVisibility: true,
@@ -350,21 +535,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 scrollDirection: Axis.horizontal,
                                 child: DataTable(
                                   columns: const [
-                                    DataColumn(label: Text('Product ID')),
-                                    DataColumn(label: Text('Supplier')),
+                                    DataColumn(label: Text('Default Supplier')),
+                                    DataColumn(label: Text('Stock Code')),
                                     DataColumn(label: Text('Stock')),
-                                    DataColumn(
-                                      label: Text('Last Updated'),
-                                    ), // New Column
-                                    DataColumn(label: Text('Action')),
+                                    DataColumn(label: Text('Last ordered')),
+                                    DataColumn(label: Text('Order')),
+                                    DataColumn(label: Text('History')),
+                                    DataColumn(label: Text('QR')),
+                                    DataColumn(label: Text('Delete')),
                                   ],
                                   rows: displayedProducts.map((product) {
                                     return DataRow(
                                       cells: [
-                                        DataCell(Text(product.id)),
                                         DataCell(Text(product.supplier)),
+                                        DataCell(Text(product.stockCode)),
                                         DataCell(
                                           Row(
+                                            mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Container(
                                                 width: 12,
@@ -381,37 +568,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ],
                                           ),
                                         ),
-                                        // New Cell: Last Updated
                                         DataCell(
                                           Text(
-                                            "${product.lastUpdated.year}-${product.lastUpdated.month.toString().padLeft(2, '0')}-${product.lastUpdated.day.toString().padLeft(2, '0')} ${product.lastUpdated.hour.toString().padLeft(2, '0')}:${product.lastUpdated.minute.toString().padLeft(2, '0')}:${product.lastUpdated.second.toString().padLeft(2, '0')}",
+                                            product.lastOrderDate != null
+                                                ? _formatDate(
+                                                    product.lastOrderDate!,
+                                                  )
+                                                : '-',
                                             style: const TextStyle(
                                               fontSize: 12,
                                             ),
                                           ),
                                         ),
                                         DataCell(
-                                          Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              IconButton(
-                                                icon: const Icon(Icons.qr_code),
-                                                onPressed: () => context.push(
-                                                  '/qr',
-                                                  extra: product.id,
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.add_shopping_cart,
+                                            ),
+                                            onPressed: () =>
+                                                _showOrderDialog(product),
+                                            tooltip: 'New Order',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          IconButton(
+                                            icon: const Icon(Icons.history),
+                                            onPressed: () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      OrderHistoryScreen(
+                                                        filterProductId:
+                                                            product.id,
+                                                      ),
                                                 ),
-                                                tooltip: 'View QR',
-                                              ),
-                                              IconButton(
-                                                icon: const Icon(
-                                                  Icons.delete,
-                                                  color: Colors.red,
-                                                ),
-                                                onPressed: () =>
-                                                    _deleteProduct(product),
-                                                tooltip: 'Delete Product',
-                                              ),
-                                            ],
+                                              );
+                                            },
+                                            tooltip: 'Order History',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          IconButton(
+                                            icon: const Icon(Icons.qr_code),
+                                            onPressed: () => context.push(
+                                              '/qr',
+                                              extra: product.stockCode,
+                                            ),
+                                            tooltip: 'View QR',
+                                          ),
+                                        ),
+                                        DataCell(
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.delete,
+                                              color: Colors.red,
+                                            ),
+                                            onPressed: () =>
+                                                _deleteProduct(product),
+                                            tooltip: 'Delete',
                                           ),
                                         ),
                                       ],

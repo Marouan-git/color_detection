@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../data/product_repository.dart';
 import '../domain/product.dart';
+import 'order_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -59,6 +60,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final product = Product(
         id: productId,
         supplier: supplier,
+        stockCode: productId, // Use productId as stockCode
         stockStatus: _selectedStockStatus,
         lastUpdated: DateTime.now(),
       );
@@ -93,13 +95,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextFormField(
                   controller: _productIdController,
                   decoration: const InputDecoration(
-                    labelText: 'Product ID',
-                    hintText: 'Enter Product ID',
+                    labelText: 'Stock Code',
+                    hintText: 'Enter Stock Code',
                     prefixIcon: Icon(Icons.qr_code),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter a Product ID';
+                      return 'Please enter a Stock Code';
                     }
                     return null;
                   },
@@ -108,13 +110,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 TextFormField(
                   controller: _supplierController,
                   decoration: const InputDecoration(
-                    labelText: 'Supplier',
-                    hintText: 'Enter Supplier Name',
+                    labelText: 'Default Supplier',
+                    hintText: 'Enter Default Supplier Name',
                     prefixIcon: Icon(Icons.business),
                   ),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Please enter a Supplier';
+                      return 'Please enter a Default Supplier';
                     }
                     return null;
                   },
@@ -148,13 +150,24 @@ class _HomeScreenState extends State<HomeScreen> {
                 OutlinedButton.icon(
                   onPressed: () => context.push('/dashboard'),
                   icon: const Icon(Icons.dashboard),
-                  label: const Text('View Product Dashboard'),
+                  label: const Text('Product Dashboard'),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
                   onPressed: () => context.push('/analysis'),
                   icon: const Icon(Icons.analytics),
                   label: const Text('Analyze Product'),
+                ),
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const OrderHistoryScreen(),
+                    ),
+                  ),
+                  icon: const Icon(Icons.history),
+                  label: const Text('Order History'),
                 ),
                 // const SizedBox(height: 16),
                 // OutlinedButton.icon(

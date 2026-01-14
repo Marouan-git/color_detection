@@ -214,27 +214,27 @@ class _AnalysisScreenState extends ConsumerState<AnalysisScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Take Photo & Upload Image row
-            Row(
-              children: [
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _captureFromCamera,
-                    icon: const Icon(Icons.camera_alt),
-                    label: const Text('Take Photo'),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _pickFromGallery,
-                    icon: const Icon(Icons.image),
-                    label: const Text('Upload Image'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
+            // Take Photo & Upload Image row (hidden per user request)
+            // Row(
+            //   children: [
+            //     Expanded(
+            //       child: ElevatedButton.icon(
+            //         onPressed: _captureFromCamera,
+            //         icon: const Icon(Icons.camera_alt),
+            //         label: const Text('Take Photo'),
+            //       ),
+            //     ),
+            //     const SizedBox(width: 16),
+            //     Expanded(
+            //       child: OutlinedButton.icon(
+            //         onPressed: _pickFromGallery,
+            //         icon: const Icon(Icons.image),
+            //         label: const Text('Upload Image'),
+            //       ),
+            //     ),
+            //   ],
+            // ),
+            // const SizedBox(height: 32),
 
             // Video Upload Button
             OutlinedButton.icon(

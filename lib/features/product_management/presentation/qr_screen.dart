@@ -29,10 +29,7 @@ class _QrScreenState extends State<QrScreen> {
             child: pw.Column(
               mainAxisAlignment: pw.MainAxisAlignment.center,
               children: [
-                pw.Text(
-                  'Product ID: ${widget.productId}',
-                  style: pw.TextStyle(fontSize: 24),
-                ),
+                pw.Text(widget.productId, style: pw.TextStyle(fontSize: 24)),
                 pw.SizedBox(height: 20),
                 pw.BarcodeWidget(
                   barcode: pw.Barcode.qrCode(),
@@ -66,7 +63,7 @@ class _QrScreenState extends State<QrScreen> {
                       mainAxisAlignment: pw.MainAxisAlignment.center,
                       children: [
                         pw.Text(
-                          'Product ID: ${widget.productId}',
+                          widget.productId,
                           style: const pw.TextStyle(fontSize: 24),
                         ),
                         pw.SizedBox(height: 20),
@@ -129,7 +126,7 @@ class _QrScreenState extends State<QrScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'Product: ${widget.productId}',
+              widget.productId,
               style: Theme.of(context).textTheme.headlineSmall,
             ),
             const SizedBox(height: 32),

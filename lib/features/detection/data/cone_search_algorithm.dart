@@ -409,7 +409,7 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
               status = StockStatus.outOfStock;
               colorLabel = "Red";
               visColor = const Color(0xFFFF0000);
-            } else if (h > 15 && h < 35) {
+            } else if (h > 17 && h < 35) {
               status = StockStatus.lowStock;
               colorLabel = "Yellow";
               visColor = const Color(0xFFFFFF00);
