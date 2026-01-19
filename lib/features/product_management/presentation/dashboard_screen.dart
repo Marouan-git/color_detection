@@ -538,6 +538,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     DataColumn(label: Text('Default Supplier')),
                                     DataColumn(label: Text('Stock Code')),
                                     DataColumn(label: Text('Stock')),
+                                    DataColumn(label: Text('Last Scanned')),
                                     DataColumn(label: Text('Last ordered')),
                                     DataColumn(label: Text('Order')),
                                     DataColumn(label: Text('History')),
@@ -568,6 +569,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                             ],
                                           ),
                                         ),
+                                        // Last Scanned
+                                        DataCell(
+                                          Text(
+                                            _formatDate(product.lastUpdated),
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                        // Last Ordered
                                         DataCell(
                                           Text(
                                             product.lastOrderDate != null

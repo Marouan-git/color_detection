@@ -367,10 +367,19 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
                                                 _confirmDeleteOrder(order),
                                             tooltip: 'Delete order',
                                           ),
-                                          Checkbox(
-                                            value: false,
-                                            onChanged: (_) =>
-                                                _confirmDelivery(order),
+                                          Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Checkbox(
+                                                value: false,
+                                                onChanged: (_) =>
+                                                    _confirmDelivery(order),
+                                              ),
+                                              const Text(
+                                                'Delivered',
+                                                style: TextStyle(fontSize: 12),
+                                              ),
+                                            ],
                                           ),
                                         ],
                                       ),

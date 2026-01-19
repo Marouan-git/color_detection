@@ -27,8 +27,8 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
   // Note: brightnessThreshold is dynamic.
   // circularity and minArea are now relative/stricter.
   final double saturationThreshold =
-      20.0; // Lowered slightly to catch washed-out LEDs
-  final double strictCircularity = 0.35;
+      15.0; // Lowered to catch dim/small LEDs better
+  final double strictCircularity = 0.30; // Relaxed slightly for small LEDs
 
   // Calibration settings (loaded at runtime)
   ConeCalibrationSettings _settings = const ConeCalibrationSettings();
@@ -272,18 +272,14 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     }
 
     // Dynamic Area Calculation (0.5% of QR area)
-    //final qrWidth = (qrCorners[1] - qrCorners[0]).distance;
-    final qrHeight = (qrCorners[3] - qrCorners[0]).distance; // TL to BL
-    final dynamicMinArea = 10.0; //(qrWidth * qrWidth) * 0.0007;
+    final qrHeight = (qrCorners[3] - qrCorners[0]).distance;
+    final dynamicMinArea = 10.0;
 
-    // NEW: Distance Constraints
-    // Min: 90% of QR height (avoids detecting the QR itself or close reflections)
-    // Max: 350% of QR height (avoids detecting lights far in the background)
+    // Distance Constraints
     final minLedDist = qrHeight * 2.0;
     final maxLedDist = qrHeight * 3.5;
 
     // --- 1. Extract ROI ---
-    // (Standard ROI extraction code here - kept brief for readability)
     int minX = fullImage.cols, minY = fullImage.rows, maxX = 0, maxY = 0;
     for (final p in cone) {
       minX = math.min(minX, p.dx.toInt());
@@ -303,6 +299,9 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     cv.Mat? roiHsv;
     cv.Mat? mask;
     cv.Mat? vChannel;
+    // KEEPING THESE FOR REUSE
+    cv.Mat? sChannel;
+    cv.Mat? satMask;
 
     try {
       // --- 2. Pre-processing ---
@@ -325,17 +324,22 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
 
       // --- 4. INTENSITY-FIRST DETECTION ---
 
-      // A. Extract Value Channel
+      // A. Extract Channels
       final channels = cv.split(roiHsv);
+      // STORE H and S for later
+      final hChannel = channels[0];
+      sChannel = channels[1];
       vChannel = channels[2];
-      channels[0].dispose();
-      channels[1].dispose();
+
+      // Dispose H immediately if not needed? No, we need it implicitly in roiHsv.
+      // Actually cv.split creates copies, so we can dispose hChannel if we only use roiHsv later.
+      // BUT we need sChannel for the Halo Mask.
+      hChannel.dispose();
 
       // B. Compute Threshold
-      // We look for things that are SIGNIFICANTLY brighter than the background
       final (meanS, stdS) = cv.meanStdDev(vChannel, mask: coneMask);
-      double threshVal = meanS.val1 + (stdS.val1 * 2.0); // Strict threshold
-      threshVal = threshVal.clamp(160.0, 240.0); // Sanity clamps
+      double threshVal = meanS.val1 + (stdS.val1 * 2.0);
+      threshVal = threshVal.clamp(160.0, 240.0);
 
       // C. Create "Bright Objects" Mask
       final (_, brightMask) = cv.threshold(
@@ -351,6 +355,11 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       brightMask.dispose();
       coneMask.dispose();
 
+      // PRE-CALCULATE HALO MASK: Find pixels that are actually colorful
+      // Threshold Saturation > 40. This filters out the white core (S ~ 0-10).
+      satMask = cv.Mat.zeros(roiMat.rows, roiMat.cols, cv.MatType.CV_8UC1);
+      cv.threshold(sChannel, 40, 255, cv.THRESH_BINARY, dst: satMask);
+
       // --- 5. Analyze Candidates ---
       final (contours, hierarchy) = cv.findContours(
         mask,
@@ -359,25 +368,17 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
       );
 
       final candidates = <Map<String, dynamic>>[];
-
       final topMidGlobal = (qrCorners[0] + qrCorners[1]) / 2.0;
 
       for (final contour in contours) {
         final area = cv.contourArea(contour);
-        if (area < dynamicMinArea) {
-          debugPrint("Area too small: $area");
-          continue;
-        }
+        if (area < dynamicMinArea) continue;
 
         final perimeter = cv.arcLength(contour, true);
         if (perimeter == 0) continue;
         final circularity = (4 * math.pi * area) / (perimeter * perimeter);
 
-        // Strict circularity because LEDs are round light sources
-        if (circularity > 0.35) {
-          // --- 6. COLOR SAMPLING (The "Better" Part) ---
-          // We don't guess the color. We ASK the blob what color it is.
-          // Calculate centroid for distance sorting
+        if (circularity > 0.25) {
           final M = cv.moments(cv.Mat.fromVec(contour));
           if (M.m00 == 0) continue;
           final cx = M.m10 / M.m00;
@@ -386,20 +387,15 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
 
           final dist = (globalCentroid - topMidGlobal).distance;
 
-          if (dist < minLedDist || dist > maxLedDist) {
-            // Skip this candidate if it is too close or too far
-            continue;
-          }
+          if (dist < minLedDist || dist > maxLedDist) continue;
 
-          // Create a mask for just this one LED candidate
+          // 1. Basic Blob Mask
           final singleLedMask = cv.Mat.zeros(
             roiMat.rows,
             roiMat.cols,
             cv.MatType.CV_8UC1,
           );
-          final cVec = cv.VecVecPoint.fromList([
-            contour.toList(),
-          ]); // tedious conversion
+          final cVec = cv.VecVecPoint.fromList([contour.toList()]);
           cv.drawContours(
             singleLedMask,
             cVec,
@@ -409,41 +405,102 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
           );
           cVec.dispose();
 
-          // Calculate average color INSIDE the blob
-          final meanColor = cv.mean(roiHsv, mask: singleLedMask);
+          // 2. SMART SAMPLING: Intersect Blob with High-Saturation Mask
+          // We only want the average color of the "Halo", not the white core.
+          final samplingMask = cv.Mat.zeros(
+            roiMat.rows,
+            roiMat.cols,
+            cv.MatType.CV_8UC1,
+          );
+          cv.bitwiseAND(singleLedMask, satMask!, dst: samplingMask);
+
+          // Fallback: If the LED is very pale (entirely S < 40), samplingMask is empty.
+          // In that case, use the whole blob (singleLedMask).
+          final validPixels = cv.countNonZero(samplingMask);
+          final maskToUse = (validPixels > 0) ? samplingMask : singleLedMask;
+
+          // Calculate average color in HSV (for saturation check)
+          final meanColorHsv = cv.mean(roiHsv, mask: maskToUse);
+
+          // Calculate LAB average color (for classification)
+          final roiLab = cv.cvtColor(roiMat, cv.COLOR_BGR2Lab);
+          final meanColorLab = cv.mean(roiLab, mask: maskToUse);
+          roiLab.dispose();
+
+          // Clean up masks AFTER using them
           singleLedMask.dispose();
+          samplingMask.dispose();
 
-          final double h = meanColor.val1; // Average Hue
-          final double s = meanColor.val2; // Average Saturation
+          final double s = meanColorHsv.val2; // Saturation from HSV
 
-          // CLASSIFICATION LOGIC
-          // Even if the center is white (S=0), the halo will pull the average S up.
-          // If Average S is still < 20, it's likely a white reflection/glare, not an LED.
-
-          if (s > 25) {
+          // We require Saturation > 10 to avoid white/glare (lowered for dim LEDs).
+          if (s > 10) {
             StockStatus? status;
             String colorLabel = "Unknown";
             Color visColor = const Color(0xFF000000);
 
-            // Hue Ranges (OpenCV Hue is 0-180)
-            // Red: 0-10 and 160-180
-            // Yellow: 15-35
-            // Green: 35-85
+            // === LAB COLOR SPACE CLASSIFICATION ===
+            // LAB is better for distinguishing yellow from green
+            // L = Lightness (0-255), A = Green-Red (-128 to 127), B = Blue-Yellow (-128 to 127)
+            // In OpenCV: L (0-255), A (0-255 where 128=0), B (0-255 where 128=0)
 
-            if (h < 12 || h > 160) {
+            // Note: meanColorLab.val1 is Lightness (not used for classification)
+            // final double labA =
+            //     meanColorLab.val2; // Green(-) to Red(+), centered at 128
+            // final double labB =
+            //     meanColorLab.val3; // Blue(-) to Yellow(+), centered at 128
+
+            // Convert to signed values (-128 to 127 range)
+            // final double a = labA - 128; // Negative = green, Positive = red
+            // final double b = labB - 128; // Negative = blue, Positive = yellow
+
+            // DEBUG: Uncomment to see LAB values
+            // debugPrint("LAB -> L: ${labL.toStringAsFixed(1)} | a: ${a.toStringAsFixed(1)} | b: ${b.toStringAsFixed(1)}");
+
+            // Classification based on LAB:
+            // RED: High positive 'a' value (red component)
+            // YELLOW: Low/neutral 'a', high positive 'b' (yellow component)
+            // GREEN: Negative 'a' value (green component), moderate 'b'
+
+            // if (a > 20) {
+            //   // Strong red component
+            //   status = StockStatus.outOfStock;
+            //   colorLabel = "Red";
+            //   visColor = const Color(0xFFFF0000);
+            // } else if (a < 5 && b > 30) {
+            //   // Low red, strong yellow - this is YELLOW
+            //   status = StockStatus.lowStock;
+            //   colorLabel = "Yellow";
+            //   visColor = const Color(0xFFFFFF00);
+            // } else if (a < -5 && b > -10 && b < 40) {
+            //   // Negative 'a' (greenish), moderate 'b'
+            //   status = StockStatus.inStock;
+            //   colorLabel = "Green";
+            //   visColor = const Color(0xFF00FF00);
+            // }
+
+            //=== HSV CLASSIFICATION (BACKUP) ===
+            final double h = meanColorHsv.val1;
+
+            // RED: 0-15 or 160-180
+            if (h < 15 || h > 160) {
               status = StockStatus.outOfStock;
               colorLabel = "Red";
               visColor = const Color(0xFFFF0000);
-            } else if (h > 17 && h < 35) {
+            }
+            // YELLOW: 18-28
+            else if (h >= 18 && h <= 30) {
               status = StockStatus.lowStock;
               colorLabel = "Yellow";
               visColor = const Color(0xFFFFFF00);
-            } else if (h >= 35 && h < 90) {
-              // Wide green range
+            }
+            // GREEN: 31-95
+            else if (h >= 33 && h < 95) {
               status = StockStatus.inStock;
               colorLabel = "Green";
               visColor = const Color(0xFF00FF00);
             }
+            // === END HSV BACKUP ===
 
             if (status != null) {
               candidates.add({
@@ -455,14 +512,12 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
               });
             }
           }
-        } else {
-          debugPrint("Circularity too small: $circularity");
         }
       }
       contours.dispose();
       hierarchy.dispose();
 
-      // --- 7. Winner Selection ---
+      // ... Winner Selection (Same as before) ...
       if (candidates.isNotEmpty) {
         candidates.sort(
           (a, b) => (a['dist'] as double).compareTo(b['dist'] as double),
@@ -482,11 +537,12 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
 
       return _fail(qrValue, qrCorners, cone, "No active light found");
     } finally {
-      // Dispose all Mats
       roiMat.dispose();
       roiHsv?.dispose();
       mask?.dispose();
       vChannel?.dispose();
+      sChannel?.dispose(); // Don't forget to dispose
+      satMask?.dispose();
     }
   }
 

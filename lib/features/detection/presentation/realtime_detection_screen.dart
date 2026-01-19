@@ -33,8 +33,12 @@ class _RealtimeDetectionScreenState
   List<DetectionResult> _currentResults = [];
   bool _isDetecting = false;
 
-  // Aggregated products detected in this session
-  final Map<String, DetectionResult> _detectedProducts = {};
+  // Confirmed products (locked after 3 consistent detections)
+  final Map<String, DetectionResult> _confirmedProducts = {};
+
+  // Detection history for confirmation threshold (last 3 detections per QR)
+  final Map<String, List<String>> _detectionHistory = {};
+  static const int _confirmationThreshold = 3;
 
   // Processing timer for throttling (target: 10 FPS = 100ms interval)
   Timer? _processingTimer;
@@ -246,16 +250,46 @@ class _RealtimeDetectionScreenState
       }
 
       if (mounted && !_isDisposed) {
-        setState(() {
-          _currentResults = results;
-          _capturedImageSize = imageSize;
-        });
+        // iOS stability: Only update overlay if we have results,
+        // otherwise keep showing the last good detection
+        final shouldUpdateOverlay = results.isNotEmpty || !_isIOS;
 
-        // Update product database for detected products
+        if (shouldUpdateOverlay) {
+          setState(() {
+            _currentResults = results;
+            _capturedImageSize = imageSize;
+          });
+        }
+
+        // Process each detection for confirmation
         for (final result in results) {
           if (result.qrCode != null && result.status != null) {
-            _detectedProducts[result.qrCode!] = result;
-            await _updateProductStatus(result);
+            final qrCode = result.qrCode!;
+            final statusName = result.status!.name;
+
+            // Skip if already confirmed
+            if (_confirmedProducts.containsKey(qrCode)) continue;
+
+            // Track detection history
+            _detectionHistory.putIfAbsent(qrCode, () => []);
+            _detectionHistory[qrCode]!.add(statusName);
+
+            // Keep only last N detections
+            if (_detectionHistory[qrCode]!.length > _confirmationThreshold) {
+              _detectionHistory[qrCode]!.removeAt(0);
+            }
+
+            // Check if we have consistent detections
+            if (_detectionHistory[qrCode]!.length >= _confirmationThreshold) {
+              final allSame = _detectionHistory[qrCode]!.every(
+                (s) => s == statusName,
+              );
+              if (allSame) {
+                // Confirmed! Lock this product
+                _confirmedProducts[qrCode] = result;
+                await _updateProductStatus(result);
+              }
+            }
           }
         }
       }
@@ -323,6 +357,14 @@ class _RealtimeDetectionScreenState
     }
   }
 
+  /// Clears the session to start fresh
+  void _clearSession() {
+    setState(() {
+      _confirmedProducts.clear();
+      _detectionHistory.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -332,9 +374,30 @@ class _RealtimeDetectionScreenState
         foregroundColor: Colors.white,
         title: const Text('Real-time Detection'),
         actions: [
+          // Confirmed count
+          if (_confirmedProducts.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8.0),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${_confirmedProducts.length} scanned',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
+            ),
           // FPS indicator
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
             child: Center(
               child: Text(
                 '$_targetFps FPS',
@@ -350,7 +413,7 @@ class _RealtimeDetectionScreenState
           Expanded(child: _buildCameraPreview()),
 
           // Results panel
-          if (_detectedProducts.isNotEmpty) _buildResultsPanel(),
+          if (_confirmedProducts.isNotEmpty) _buildResultsPanel(),
         ],
       ),
     );
@@ -489,24 +552,42 @@ class _RealtimeDetectionScreenState
   }
 
   Widget _buildResultsPanel() {
-    final results = _detectedProducts.values.toList();
+    final results = _confirmedProducts.values.toList();
 
     return Container(
       color: Colors.black87,
-      height: 150,
+      height: 250,
       width: double.infinity,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: Text(
-              'Products Detected (${results.length})',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+            child: Row(
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Confirmed Products (${results.length})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                // Clear button with label
+                TextButton.icon(
+                  onPressed: _clearSession,
+                  icon: const Icon(Icons.delete_sweep, size: 16),
+                  label: const Text('Clear'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                  ),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -517,10 +598,14 @@ class _RealtimeDetectionScreenState
                   const Divider(color: Colors.white24, height: 1),
               itemBuilder: (context, index) {
                 final result = results[index];
+                final qrCode = result.qrCode ?? 'Unknown';
                 return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  padding: const EdgeInsets.symmetric(vertical: 2.0),
                   child: Row(
                     children: [
+                      // Checkmark for confirmed
+                      const Icon(Icons.check, color: Colors.green, size: 16),
+                      const SizedBox(width: 6),
                       Container(
                         width: 12,
                         height: 12,
@@ -530,12 +615,49 @@ class _RealtimeDetectionScreenState
                         ),
                       ),
                       const SizedBox(width: 8),
+                      // QR Code
                       Expanded(
                         child: Text(
-                          result.qrCode ?? 'Unknown',
+                          qrCode,
                           style: const TextStyle(color: Colors.white),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      // Re-scan button (centered with label)
+                      GestureDetector(
+                        onTap: () => _rescanProduct(qrCode),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white12,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.refresh,
+                                color: Colors.white70,
+                                size: 16,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Re-scan',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      // Status label (at the end)
                       Text(
                         result.status?.label ?? 'Unknown',
                         style: TextStyle(
@@ -552,5 +674,13 @@ class _RealtimeDetectionScreenState
         ],
       ),
     );
+  }
+
+  /// Re-scan a specific product by removing it from confirmed list
+  void _rescanProduct(String qrCode) {
+    setState(() {
+      _confirmedProducts.remove(qrCode);
+      _detectionHistory.remove(qrCode);
+    });
   }
 }

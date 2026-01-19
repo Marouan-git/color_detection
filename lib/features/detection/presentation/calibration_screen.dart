@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_mlkit_barcode_scanning/google_mlkit_barcode_scanning.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
+import 'package:path_provider/path_provider.dart';
 import '../data/calibration_repository.dart';
 import '../domain/cone_calibration_settings.dart';
 
@@ -63,22 +65,30 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
     });
 
     try {
-      // Decode image to get size
-      final decodedImage = await decodeImageFromList(file.readAsBytesSync());
+      // On iOS, preprocess to apply EXIF orientation
+      File processedFile = file;
+      if (Platform.isIOS) {
+        processedFile = await _preprocessIosImage(file);
+      }
+
+      // Decode image to get size (with EXIF applied)
+      final decodedImage = await decodeImageFromList(
+        processedFile.readAsBytesSync(),
+      );
       final imageSize = Size(
         decodedImage.width.toDouble(),
         decodedImage.height.toDouble(),
       );
 
-      // Detect QR code
-      final inputImage = InputImage.fromFile(file);
+      // Detect QR code (use processedFile to match coordinate space)
+      final inputImage = InputImage.fromFile(processedFile);
       final barcodeScanner = BarcodeScanner();
       final barcodes = await barcodeScanner.processImage(inputImage);
       await barcodeScanner.close();
 
       if (barcodes.isEmpty) {
         setState(() {
-          _selectedImage = file;
+          _selectedImage = processedFile;
           _imageSize = imageSize;
           _qrCorners = null;
           _errorMessage =
@@ -93,7 +103,7 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
       final corners = barcode.cornerPoints;
       if (corners == null || corners.length != 4) {
         setState(() {
-          _selectedImage = file;
+          _selectedImage = processedFile;
           _imageSize = imageSize;
           _qrCorners = null;
           _errorMessage =
@@ -104,7 +114,7 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
       }
 
       setState(() {
-        _selectedImage = file;
+        _selectedImage = processedFile;
         _imageSize = imageSize;
         _qrCorners = corners
             .map((p) => Offset(p.x.toDouble(), p.y.toDouble()))
@@ -117,6 +127,35 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
         _errorMessage = 'Error processing image: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  /// Preprocesses iOS images to apply EXIF orientation correction.
+  Future<File> _preprocessIosImage(File originalFile) async {
+    try {
+      final bytes = await originalFile.readAsBytes();
+
+      // Decode image with EXIF orientation applied
+      final image = img.decodeImage(bytes);
+      if (image == null) {
+        debugPrint('Failed to decode image for preprocessing');
+        return originalFile;
+      }
+
+      // Re-encode to JPEG to bake in the correct orientation
+      final correctedBytes = img.encodeJpg(image, quality: 95);
+
+      // Save to temp file
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File(
+        '${tempDir.path}/calibration_${DateTime.now().millisecondsSinceEpoch}.jpg',
+      );
+      await tempFile.writeAsBytes(correctedBytes);
+
+      return tempFile;
+    } catch (e) {
+      debugPrint('Error preprocessing iOS image: $e');
+      return originalFile;
     }
   }
 
@@ -144,7 +183,7 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
         actions: [
           if (_qrCorners != null)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 8.0),
               child: ElevatedButton(
                 onPressed: _saveSettings,
                 style: ElevatedButton.styleFrom(
@@ -318,8 +357,8 @@ class _CalibrationScreenState extends ConsumerState<CalibrationScreen> {
           Slider(
             value: _heightMultiplier,
             min: 0.5,
-            max: 1.5,
-            divisions: 10,
+            max: 2.0,
+            divisions: 15,
             label: '${_heightMultiplier.toStringAsFixed(1)}x',
             onChanged: (value) {
               setState(() => _heightMultiplier = value);

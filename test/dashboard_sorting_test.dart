@@ -203,6 +203,7 @@ void main() {
     // Check for the formatted date from lastOrderDate
     // P2 has lastOrderDate: DateTime(2023, 1, 2, 10, 0, 0)
     // Format: yyyy-MM-dd HH:mm
-    expect(find.text('2023-01-02 10:00'), findsOneWidget);
+    // Note: This date appears in both "Last Scanned" and "Last Ordered" columns
+    expect(find.text('2023-01-02 10:00'), findsWidgets);
   });
 }
