@@ -251,6 +251,143 @@ class ConeSearchAlgorithm extends DetectionAlgorithm {
     }
   }
 
+  /// Process image from YUV420 bytes (Android camera stream format).
+  Future<List<DetectionResult>> processFromYuv420(
+    Uint8List yBytes,
+    Uint8List uBytes,
+    Uint8List vBytes,
+    int width,
+    int height,
+    int yRowStride,
+    int uvRowStride,
+    int uvPixelStride,
+  ) async {
+    // Convert YUV420 to NV21 format for ML Kit
+    final nv21Bytes = Uint8List(width * height + (width * height ~/ 2));
+
+    // Copy Y plane
+    int yIndex = 0;
+    for (int row = 0; row < height; row++) {
+      for (int col = 0; col < width; col++) {
+        nv21Bytes[yIndex++] = yBytes[row * yRowStride + col];
+      }
+    }
+
+    // Interleave V and U planes (NV21 format: V first, then U)
+    int uvIndex = width * height;
+    for (int row = 0; row < height ~/ 2; row++) {
+      for (int col = 0; col < width ~/ 2; col++) {
+        final uvOffset = row * uvRowStride + col * uvPixelStride;
+        nv21Bytes[uvIndex++] = vBytes[uvOffset];
+        nv21Bytes[uvIndex++] = uBytes[uvOffset];
+      }
+    }
+
+    final inputImage = InputImage.fromBytes(
+      bytes: nv21Bytes,
+      metadata: InputImageMetadata(
+        size: Size(width.toDouble(), height.toDouble()),
+        rotation: InputImageRotation.rotation90deg,
+        format: InputImageFormat.nv21,
+        bytesPerRow: width,
+      ),
+    );
+    final barcodeScanner = BarcodeScanner(formats: [BarcodeFormat.all]);
+    final results = <DetectionResult>[];
+
+    await _loadCalibrationSettings();
+
+    try {
+      final barcodes = await barcodeScanner.processImage(inputImage);
+
+      if (barcodes.isEmpty) {
+        return [
+          DetectionResult(message: 'No QR Code found.', algorithmName: name),
+        ];
+      }
+
+      // Convert YUV420 to BGR for OpenCV
+      final bgrBytes = _yuv420ToBgr(
+        yBytes,
+        uBytes,
+        vBytes,
+        width,
+        height,
+        yRowStride,
+        uvRowStride,
+        uvPixelStride,
+      );
+
+      final mat = cv.Mat.fromList(height, width, cv.MatType.CV_8UC3, bgrBytes);
+
+      // Rotate the Mat 90 degrees clockwise to match ML Kit's coordinate space
+      // ML Kit applies rotation90deg internally, so we need to match that
+      final rotatedMat = cv.rotate(mat, cv.ROTATE_90_CLOCKWISE);
+      mat.dispose();
+
+      try {
+        for (final barcode in barcodes) {
+          final qrValue = barcode.displayValue;
+          final cornerPoints = barcode.cornerPoints;
+          if (cornerPoints == null || cornerPoints.length != 4) continue;
+
+          final corners = cornerPoints
+              .map((p) => Offset(p.x.toDouble(), p.y.toDouble()))
+              .toList();
+          final result = _processSingleCone(rotatedMat, qrValue, corners);
+          results.add(result);
+        }
+        return results;
+      } finally {
+        rotatedMat.dispose();
+      }
+    } catch (e) {
+      debugPrint("Algorithm Error (YUV420): $e");
+      return [DetectionResult(message: 'Error: $e', algorithmName: name)];
+    } finally {
+      barcodeScanner.close();
+    }
+  }
+
+  /// Convert YUV420 to BGR format for OpenCV
+  Uint8List _yuv420ToBgr(
+    Uint8List yBytes,
+    Uint8List uBytes,
+    Uint8List vBytes,
+    int width,
+    int height,
+    int yRowStride,
+    int uvRowStride,
+    int uvPixelStride,
+  ) {
+    final bgrBytes = Uint8List(width * height * 3);
+    for (int row = 0; row < height; row++) {
+      for (int col = 0; col < width; col++) {
+        final yIdx = row * yRowStride + col;
+        final uvRow = row ~/ 2;
+        final uvCol = col ~/ 2;
+        final uvIdx = uvRow * uvRowStride + uvCol * uvPixelStride;
+
+        final y = yBytes[yIdx];
+        final u = uBytes[uvIdx];
+        final v = vBytes[uvIdx];
+
+        // YUV to RGB
+        final r = (y + 1.370705 * (v - 128)).clamp(0, 255).toInt();
+        final g = (y - 0.698001 * (v - 128) - 0.337633 * (u - 128))
+            .clamp(0, 255)
+            .toInt();
+        final b = (y + 1.732446 * (u - 128)).clamp(0, 255).toInt();
+
+        final bgrIdx = (row * width + col) * 3;
+        bgrBytes[bgrIdx] = b;
+        bgrBytes[bgrIdx + 1] = g;
+        bgrBytes[bgrIdx + 2] = r;
+      }
+    }
+    return bgrBytes;
+  }
+
   DetectionResult _processSingleCone(
     cv.Mat fullImage,
     String? qrValue,

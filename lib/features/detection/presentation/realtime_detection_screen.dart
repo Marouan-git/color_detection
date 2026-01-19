@@ -132,9 +132,8 @@ class _RealtimeDetectionScreenState
       if (mounted && !_isDisposed) {
         setState(() => _isInitialized = true);
 
-        if (_isIOS) {
-          _startImageStream();
-        }
+        // Use image streaming on both platforms for better detection
+        _startImageStream();
 
         _startProcessing();
       }
@@ -223,34 +222,37 @@ class _RealtimeDetectionScreenState
         // Process directly using BGRA bytes (no JPEG compression!)
         results = await _algorithm.processFromBgra(bgraBytes, width, height);
       } else {
-        // Android: Use takePicture (original working approach)
-        final XFile imageFile = await _controller!.takePicture();
-        final frameFile = File(imageFile.path);
-
-        // Get actual image dimensions for overlay scaling
-        final imageBytes = await frameFile.readAsBytes();
-        final decodedImage = await decodeImageFromList(imageBytes);
-        imageSize = Size(
-          decodedImage.width.toDouble(),
-          decodedImage.height.toDouble(),
-        );
-
-        if (_isDisposed) {
+        // Android: Use YUV420 image stream (no JPEG compression!)
+        final cameraImage = _latestCameraImage;
+        if (cameraImage == null || _isDisposed) {
           _isDetecting = false;
           return;
         }
 
-        // Process the frame
-        results = await _algorithm.process(frameFile);
+        final width = cameraImage.width;
+        final height = cameraImage.height;
+        // Note: Image is rotated 90deg, so dimensions are swapped for overlay
+        imageSize = Size(height.toDouble(), width.toDouble());
 
-        // Clean up captured file
-        try {
-          frameFile.deleteSync();
-        } catch (_) {}
+        // Extract YUV planes
+        final yPlane = cameraImage.planes[0];
+        final uPlane = cameraImage.planes[1];
+        final vPlane = cameraImage.planes[2];
+
+        results = await _algorithm.processFromYuv420(
+          yPlane.bytes,
+          uPlane.bytes,
+          vPlane.bytes,
+          width,
+          height,
+          yPlane.bytesPerRow,
+          uPlane.bytesPerRow,
+          uPlane.bytesPerPixel ?? 1,
+        );
       }
 
       if (mounted && !_isDisposed) {
-        // iOS stability: Only update overlay if we have results,
+        // Stability: Only update overlay if we have results,
         // otherwise keep showing the last good detection
         final shouldUpdateOverlay = results.isNotEmpty || !_isIOS;
 
@@ -412,8 +414,8 @@ class _RealtimeDetectionScreenState
           // Camera preview with overlay
           Expanded(child: _buildCameraPreview()),
 
-          // Results panel
-          if (_confirmedProducts.isNotEmpty) _buildResultsPanel(),
+          // Results panel (always visible to prevent layout shift)
+          _buildResultsPanel(),
         ],
       ),
     );
@@ -577,99 +579,111 @@ class _RealtimeDetectionScreenState
                     ),
                   ),
                 ),
-                // Clear button with label
-                TextButton.icon(
-                  onPressed: _clearSession,
-                  icon: const Icon(Icons.delete_sweep, size: 16),
-                  label: const Text('Clear'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                // Clear button with label (only show when there are results)
+                if (results.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: _clearSession,
+                    icon: const Icon(Icons.delete_sweep, size: 16),
+                    label: const Text('Clear'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: Colors.white70,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              itemCount: results.length,
-              separatorBuilder: (context, index) =>
-                  const Divider(color: Colors.white24, height: 1),
-              itemBuilder: (context, index) {
-                final result = results[index];
-                final qrCode = result.qrCode ?? 'Unknown';
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2.0),
-                  child: Row(
-                    children: [
-                      // Checkmark for confirmed
-                      const Icon(Icons.check, color: Colors.green, size: 16),
-                      const SizedBox(width: 6),
-                      Container(
-                        width: 12,
-                        height: 12,
-                        decoration: BoxDecoration(
-                          color: result.detectedColor ?? Colors.grey,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // QR Code
-                      Expanded(
-                        child: Text(
-                          qrCode,
-                          style: const TextStyle(color: Colors.white),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // Re-scan button (centered with label)
-                      GestureDetector(
-                        onTap: () => _rescanProduct(qrCode),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white12,
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.refresh,
-                                color: Colors.white70,
-                                size: 16,
+            child: results.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Point camera at QR codes to scan products',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    itemCount: results.length,
+                    separatorBuilder: (context, index) =>
+                        const Divider(color: Colors.white24, height: 1),
+                    itemBuilder: (context, index) {
+                      final result = results[index];
+                      final qrCode = result.qrCode ?? 'Unknown';
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2.0),
+                        child: Row(
+                          children: [
+                            // Checkmark for confirmed
+                            const Icon(
+                              Icons.check,
+                              color: Colors.green,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Container(
+                              width: 12,
+                              height: 12,
+                              decoration: BoxDecoration(
+                                color: result.detectedColor ?? Colors.grey,
+                                shape: BoxShape.circle,
                               ),
-                              SizedBox(width: 4),
-                              Text(
-                                'Re-scan',
-                                style: TextStyle(
-                                  color: Colors.white70,
-                                  fontSize: 12,
+                            ),
+                            const SizedBox(width: 8),
+                            // QR Code
+                            Expanded(
+                              child: Text(
+                                qrCode,
+                                style: const TextStyle(color: Colors.white),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            // Re-scan button (centered with label)
+                            GestureDetector(
+                              onTap: () => _rescanProduct(qrCode),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white12,
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.refresh,
+                                      color: Colors.white70,
+                                      size: 16,
+                                    ),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Re-scan',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
-                          ),
+                            ),
+                            const SizedBox(width: 12),
+                            // Status label (at the end)
+                            Text(
+                              result.status?.label ?? 'Unknown',
+                              style: TextStyle(
+                                color: result.detectedColor ?? Colors.grey,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      // Status label (at the end)
-                      Text(
-                        result.status?.label ?? 'Unknown',
-                        style: TextStyle(
-                          color: result.detectedColor ?? Colors.grey,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
