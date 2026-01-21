@@ -216,32 +216,56 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Future<void> _exportCsv() async {
-    if (_products.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('No products to export')));
+  Future<void> _exportCsv({bool onlyToBeOrdered = false}) async {
+    var productsToExport = _products;
+
+    // Filter to only red (out of stock) and yellow (low stock) if requested
+    if (onlyToBeOrdered) {
+      productsToExport = _products
+          .where(
+            (p) =>
+                p.stockStatus == StockStatus.outOfStock ||
+                p.stockStatus == StockStatus.lowStock,
+          )
+          .toList();
+    }
+
+    if (productsToExport.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            onlyToBeOrdered
+                ? 'No products need ordering'
+                : 'No products to export',
+          ),
+        ),
+      );
       return;
     }
 
     try {
       final header =
-          'Default Supplier,Stock Code,Stock Status,Last Order Date,Quantity Ordered\n';
-      final rows = _products
+          'Default Supplier,Stock Code,Stock Status,Last Scanned,Last Order Date,Quantity Ordered\n';
+      final rows = productsToExport
           .map((p) {
+            final lastScanned =
+                p.lastUpdated?.toIso8601String().substring(0, 16) ?? '';
             final lastOrder =
                 p.lastOrderDate?.toIso8601String().substring(0, 16) ?? '';
-            return '${p.supplier},${p.stockCode},${p.stockStatus.label},$lastOrder,${p.quantityOrdered ?? ''}';
+            return '${p.supplier},${p.stockCode},${p.stockStatus.label},$lastScanned,$lastOrder,${p.quantityOrdered ?? ''}';
           })
           .join('\n');
       final csvContent = '$header$rows';
 
       final directory = await getTemporaryDirectory();
-      final file = File('${directory.path}/products_export.csv');
+      final filename = onlyToBeOrdered
+          ? 'products_to_order.csv'
+          : 'products_export.csv';
+      final file = File('${directory.path}/$filename');
       await file.writeAsString(csvContent);
 
       if (mounted) {
-        await saveFileToDownloads(context, file, 'products_export.csv');
+        await saveFileToDownloads(context, file, filename);
       }
     } catch (e) {
       if (mounted) {
@@ -250,6 +274,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ).showSnackBar(SnackBar(content: Text('Export failed: $e')));
       }
     }
+  }
+
+  /// Show export options dialog
+  void _showExportOptions() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Export to CSV'),
+        content: const Text('Choose what to export:'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _exportCsv(onlyToBeOrdered: true);
+            },
+            child: const Text(
+              'To Be Ordered\n(Red & Yellow)',
+              textAlign: TextAlign.center,
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _exportCsv(onlyToBeOrdered: false);
+            },
+            child: const Text('Full Inventory'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _printAllQrs() async {
@@ -362,7 +416,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   }
                   break;
                 case 'csv':
-                  _exportCsv();
+                  _showExportOptions();
                   break;
                 case 'print':
                   _printAllQrs();
